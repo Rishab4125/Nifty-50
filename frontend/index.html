@@ -314,7 +314,7 @@
           setLoading(true);
           setError("");
           try {
-            const res = await fetch("https://nifty-50-fi1v.onrender.com", {, {
+            const res = await fetch("https://nifty-50-fi1v.onrender.com/api/returns", {, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
