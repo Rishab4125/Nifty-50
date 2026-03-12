@@ -290,6 +290,12 @@
     <script>
       const { useState, useEffect } = React;
 
+      const BACKEND_BASE_URL =
+        window.location.hostname === "localhost" ||
+        window.location.hostname === "127.0.0.1"
+          ? "http://127.0.0.1:8000"
+          : "https://nifty-50-fi1v.onrender.com";
+
       function formatPct(v) {
         if (v === null || v === undefined || Number.isNaN(v)) return "—";
         const pct = v * 100;
@@ -314,7 +320,7 @@
           setLoading(true);
           setError("");
           try {
-            const res = await fetch("https://nifty-50-fi1v.onrender.com/api/returns", {, {
+            const res = await fetch(`${BACKEND_BASE_URL}/api/returns`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
