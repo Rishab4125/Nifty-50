@@ -6,6 +6,11 @@ import yfinance as yf
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+import requests
+
+session = requests.Session()
+session.headers.update({"User-Agent": "Mozilla/5.0 (compatible; Nifty50ReturnsBot/1.0)"})
+yf.utils.requests = lambda : session
 
 
 class StockReturn(BaseModel):
