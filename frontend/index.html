@@ -290,11 +290,13 @@
     <script>
       const { useState, useEffect } = React;
 
-      const BACKEND_BASE_URL =
-        window.location.hostname === "localhost" ||
-        window.location.hostname === "127.0.0.1"
-          ? "http://127.0.0.1:8000"
-          : "https://nifty-50-fi1v.onrender.com";
+      // const BACKEND_BASE_URL =
+      //   window.location.hostname === "localhost" ||
+      //   window.location.hostname === "127.0.0.1"
+      //     ? "http://127.0.0.1:8000"
+      //     : "https://nifty-50-fi1v.onrender.com";
+      
+      const BACKEND_BASE_URL = "http://127.0.0.1:8000";
 
       function formatPct(v) {
         if (v === null || v === undefined || Number.isNaN(v)) return "—";
