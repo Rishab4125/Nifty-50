@@ -14,6 +14,9 @@ class StockReturn(BaseModel):
     one_year: Optional[float]
     three_year: Optional[float]
     five_year: Optional[float]
+    one_year_dividend: Optional[float] = None
+    three_year_dividend: Optional[float] = None
+    five_year_dividend: Optional[float] = None
 
 
 class ReturnsResponse(BaseModel):
@@ -170,6 +173,57 @@ def _compute_horizon_return(
     return end_price / start_price - 1.0
 
 
+def _compute_horizon_returns_with_dividends(
+    df: pd.DataFrame, as_of: date, years: int, include_dividends: bool
+) -> (Optional[float], Optional[float]):
+    """
+    Compute price-only return and dividend contribution separately when possible.
+    Returns (total_return_used, dividend_return).
+    """
+    if df.empty:
+        return None, None
+
+    cols = df.columns
+    has_close = "Close" in cols
+    has_adj = "Adj Close" in cols
+
+    # Fallback to the simpler logic if we don't have both series.
+    if not (has_close and has_adj):
+        base = _compute_horizon_return(df, as_of, years, include_dividends)
+        return base, None
+
+    idx = df.index
+    if len(idx) == 0:
+        return None, None
+
+    as_of_ts = pd.to_datetime(as_of)
+    allowed_end = idx[idx <= as_of_ts]
+    if len(allowed_end) == 0:
+        return None, None
+    end_ts = allowed_end[-1]
+
+    start_target = _years_ago(as_of, years)
+    start_ts_candidates = idx[idx >= pd.to_datetime(start_target)]
+    start_ts = start_ts_candidates[0] if len(start_ts_candidates) else idx[0]
+
+    start_close = float(df.loc[start_ts, "Close"])
+    end_close = float(df.loc[end_ts, "Close"])
+    start_adj = float(df.loc[start_ts, "Adj Close"])
+    end_adj = float(df.loc[end_ts, "Adj Close"])
+
+    if start_close <= 0 or start_adj <= 0:
+        return None, None
+
+    price_return = end_close / start_close - 1.0
+    total_return = end_adj / start_adj - 1.0
+    dividend_return = total_return - price_return
+
+    if include_dividends:
+        return total_return, dividend_return
+    else:
+        return price_return, dividend_return
+
+
 def _compute_stock_returns(
     symbol: str, ticker: str, as_of: date, include_dividends: bool
 ) -> StockReturn:
@@ -177,9 +231,15 @@ def _compute_stock_returns(
     start_for_5y = _years_ago(as_of, 5) - timedelta(days=7)
     df = _get_history(ticker, start_for_5y, as_of)
 
-    one = _compute_horizon_return(df, as_of, 1, include_dividends)
-    three = _compute_horizon_return(df, as_of, 3, include_dividends)
-    five = _compute_horizon_return(df, as_of, 5, include_dividends)
+    one, one_div = _compute_horizon_returns_with_dividends(
+        df, as_of, 1, include_dividends
+    )
+    three, three_div = _compute_horizon_returns_with_dividends(
+        df, as_of, 3, include_dividends
+    )
+    five, five_div = _compute_horizon_returns_with_dividends(
+        df, as_of, 5, include_dividends
+    )
 
     # We skip name lookups to avoid extra Yahoo calls that can fail.
     name = None
@@ -190,6 +250,9 @@ def _compute_stock_returns(
         one_year=one,
         three_year=three,
         five_year=five,
+        one_year_dividend=one_div,
+        three_year_dividend=three_div,
+        five_year_dividend=five_div,
     )
 
 
