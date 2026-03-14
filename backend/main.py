@@ -1,7 +1,6 @@
 from datetime import date, timedelta
 from typing import List, Optional, Dict
 
-import numpy as np
 import pandas as pd
 import yfinance as yf
 from fastapi import FastAPI, HTTPException
@@ -21,6 +20,14 @@ class ReturnsResponse(BaseModel):
     as_of_date: date
     include_dividends: bool
     stocks: List[StockReturn]
+
+
+class DebugResponse(BaseModel):
+    symbol: str
+    rows: int
+    start_date: Optional[date]
+    end_date: Optional[date]
+    approx_5y_return: Optional[float]
 
 
 class ReturnsQuery(BaseModel):
@@ -63,6 +70,7 @@ NIFTY_50_SYMBOLS: Dict[str, str] = {
     "HCLTECH": "HCLTECH.NS",
     "WIPRO": "WIPRO.NS",
     "ONGC": "ONGC.NS",
+    "TMPV": "TMPV.NS",
     "COALINDIA": "COALINDIA.NS",
     "BAJAJ-AUTO": "BAJAJ-AUTO.NS",
     "TATASTEEL": "TATASTEEL.NS",
@@ -77,7 +85,6 @@ NIFTY_50_SYMBOLS: Dict[str, str] = {
     "GRASIM": "GRASIM.NS",
     "HDFCLIFE": "HDFCLIFE.NS",
     "SBILIFE": "SBILIFE.NS",
-    "TATAMOTORS": "TATAMOTORS.NS",
     "BAJAJFINSV": "BAJAJFINSV.NS",
     "BRITANNIA": "BRITANNIA.NS",
     "HEROMOTOCO": "HEROMOTOCO.NS",
@@ -105,51 +112,23 @@ def _years_ago(as_of: date, years: int) -> date:
         return as_of.replace(month=2, day=28, year=as_of.year - years)
 
 
-def _get_history_with_actions(ticker: str, start: date, end: date) -> pd.DataFrame:
-    """Download price history, stock splits, and dividends for a ticker."""
+def _get_history(ticker: str, start: date, end: date) -> pd.DataFrame:
+    """
+    Download raw price history for a ticker, in the same spirit as test_yfinance.py.
+    """
     yf_ticker = yf.Ticker(ticker)
     df = yf_ticker.history(start=start, end=end + timedelta(days=1), auto_adjust=False)
     if df.empty:
         return df
-    df = df[["Close", "Dividends", "Stock Splits"]]
+    # Normalise index and ensure we have expected columns if present.
     df.index = pd.to_datetime(df.index)
+    # yfinance can return timezone-aware indices; make them tz-naive so that
+    # comparisons with plain dates (as_of_date) don't raise TypeError.
+    try:
+        df.index = df.index.tz_localize(None)
+    except (TypeError, AttributeError):
+        pass
     return df
-
-
-def _apply_split_adjustment(df: pd.DataFrame) -> pd.DataFrame:
-    """Create a Close price series adjusted for splits/bonuses but not dividends."""
-    if df.empty:
-        return df
-
-    df = df.copy()
-    df["split_factor"] = 1.0
-
-    factors = []
-    cumulative = 1.0
-    for split in df["Stock Splits"].fillna(0):
-        if split and split > 0:
-            cumulative *= split
-        factors.append(cumulative)
-    df["split_factor"] = factors
-
-    df["Close_adj_split"] = df["Close"] / df["split_factor"].replace(0, np.nan)
-    return df
-
-
-def _nearest_trading_day(df: pd.DataFrame, target: date) -> Optional[pd.Timestamp]:
-    if df.empty:
-        return None
-    ts = pd.to_datetime(target)
-    before = df.index[df.index <= ts]
-    after = df.index[df.index >= ts]
-    candidates = []
-    if len(before) > 0:
-        candidates.append(before[-1])
-    if len(after) > 0:
-        candidates.append(after[0])
-    if not candidates:
-        return None
-    return min(candidates, key=lambda d: abs(d - ts))
 
 
 def _compute_horizon_return(
@@ -158,31 +137,37 @@ def _compute_horizon_return(
     if df.empty:
         return None
 
-    end_ts = _nearest_trading_day(df, as_of)
-    if end_ts is None:
+    # Choose price series:
+    # - If include_dividends: use Adj Close (Yahoo total-return style).
+    # - If exclude_dividends: use Close (price-only; splits handled by Yahoo).
+    price_col = "Adj Close" if include_dividends and "Adj Close" in df.columns else "Close"
+    if price_col not in df.columns:
         return None
 
-    start_date = _years_ago(as_of, years)
-    start_ts = _nearest_trading_day(df, start_date)
-    if start_ts is None:
+    idx = df.index
+    if len(idx) == 0:
         return None
 
-    df = df.loc[min(start_ts, end_ts) : max(start_ts, end_ts)].copy()
-    df = _apply_split_adjustment(df)
+    as_of_ts = pd.to_datetime(as_of)
+    allowed_end = idx[idx <= as_of_ts]
+    if len(allowed_end) == 0:
+        return None
+    end_ts = allowed_end[-1]
 
-    start_price = float(df.loc[start_ts, "Close_adj_split"])
-    end_price = float(df.loc[end_ts, "Close_adj_split"])
+    start_target = _years_ago(as_of, years)
+    start_ts_candidates = idx[idx >= pd.to_datetime(start_target)]
+    if len(start_ts_candidates) == 0:
+        start_ts = idx[0]
+    else:
+        start_ts = start_ts_candidates[0]
 
+    # Slice and compute simple total return.
+    start_price = float(df.loc[start_ts, price_col])
+    end_price = float(df.loc[end_ts, price_col])
     if start_price <= 0:
         return None
 
-    if include_dividends:
-        dividends = float(df.loc[start_ts:end_ts, "Dividends"].sum())
-        total_return = (end_price + dividends) / start_price - 1.0
-    else:
-        total_return = end_price / start_price - 1.0
-
-    return total_return
+    return end_price / start_price - 1.0
 
 
 def _compute_stock_returns(
@@ -190,18 +175,14 @@ def _compute_stock_returns(
 ) -> StockReturn:
     # Fetch enough history to cover 5Y lookback plus a small buffer for holidays.
     start_for_5y = _years_ago(as_of, 5) - timedelta(days=7)
-    df = _get_history_with_actions(ticker, start_for_5y, as_of)
+    df = _get_history(ticker, start_for_5y, as_of)
 
     one = _compute_horizon_return(df, as_of, 1, include_dividends)
     three = _compute_horizon_return(df, as_of, 3, include_dividends)
     five = _compute_horizon_return(df, as_of, 5, include_dividends)
 
+    # We skip name lookups to avoid extra Yahoo calls that can fail.
     name = None
-    try:
-        info = yf.Ticker(ticker).fast_info
-        name = getattr(info, "shortName", None) or getattr(info, "longName", None)
-    except Exception:
-        name = None
 
     return StockReturn(
         symbol=symbol,
@@ -240,4 +221,43 @@ def get_nifty_returns(query: ReturnsQuery) -> ReturnsResponse:
 @app.get("/health")
 def health() -> Dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/debug/{ticker}", response_model=DebugResponse)
+def debug_ticker(ticker: str) -> DebugResponse:
+    """
+    Minimal debug endpoint that mirrors test_yfinance.py behaviour for a single ticker.
+    Helps verify that yfinance + history() work inside the FastAPI process.
+    """
+    as_of = date.today()
+    start = _years_ago(as_of, 5) - timedelta(days=7)
+    df = _get_history(ticker, start, as_of)
+
+    if df.empty:
+        return DebugResponse(
+            symbol=ticker,
+            rows=0,
+            start_date=None,
+            end_date=None,
+            approx_5y_return=None,
+        )
+
+    first_idx = df.index[0]
+    last_idx = df.index[-1]
+
+    price_col = "Adj Close" if "Adj Close" in df.columns else "Close"
+    first_close = float(df[price_col].iloc[0])
+    last_close = float(df[price_col].iloc[-1])
+
+    approx = None
+    if first_close > 0:
+        approx = last_close / first_close - 1.0
+
+    return DebugResponse(
+        symbol=ticker,
+        rows=len(df),
+        start_date=first_idx.date(),
+        end_date=last_idx.date(),
+        approx_5y_return=approx,
+    )
 
