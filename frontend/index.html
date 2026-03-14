@@ -295,7 +295,7 @@
       //   window.location.hostname === "127.0.0.1"
       //     ? "http://127.0.0.1:8000"
       //     : "https://nifty-50-fi1v.onrender.com";
-      
+
       const BACKEND_BASE_URL = "http://127.0.0.1:8000";
 
       function formatPct(v) {
@@ -356,11 +356,19 @@
           const { key, direction } = sortConfig || {};
           if (!key) return stocks;
           stocks.sort((a, b) => {
-            const va = a[key] ?? -Infinity;
-            const vb = b[key] ?? -Infinity;
-            if (va === vb) return 0;
-            if (direction === "asc") return va < vb ? -1 : 1;
-            return va > vb ? -1 : 1;
+            if (key === "symbol") {
+              const va = (a.symbol || "").toUpperCase();
+              const vb = (b.symbol || "").toUpperCase();
+              if (va === vb) return 0;
+              if (direction === "asc") return va < vb ? -1 : 1;
+              return va > vb ? -1 : 1;
+            } else {
+              const va = a[key] ?? -Infinity;
+              const vb = b[key] ?? -Infinity;
+              if (va === vb) return 0;
+              if (direction === "asc") return va < vb ? -1 : 1;
+              return va > vb ? -1 : 1;
+            }
           });
           return stocks;
         }
@@ -589,7 +597,14 @@
                     React.createElement(
                       "tr",
                       null,
-                      React.createElement("th", null, "Stock"),
+                      React.createElement(
+                        "th",
+                        {
+                          className: "th-clickable",
+                          onClick: () => handleHeaderClick("symbol"),
+                        },
+                        sortLabel("symbol", "Stock")
+                      ),
                       React.createElement(
                         "th",
                         {
