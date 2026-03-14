@@ -411,6 +411,9 @@
             "1Y Return",
             "3Y Return",
             "5Y Return",
+            "1Y Dividend",
+            "3Y Dividend",
+            "5Y Dividend",
             "AsOf",
             "IncludeDividends",
           ]);
@@ -421,6 +424,9 @@
               s.one_year ?? "",
               s.three_year ?? "",
               s.five_year ?? "",
+              s.one_year_dividend ?? "",
+              s.three_year_dividend ?? "",
+              s.five_year_dividend ?? "",
               data.as_of_date,
               data.include_dividends ? "1" : "0",
             ]);
@@ -566,11 +572,21 @@
                 null,
                 sortConfig && sortConfig.key
                   ? `Sorted by ${
-                      sortConfig.key === "one_year"
+                      sortConfig.key === "symbol"
+                        ? "Stock"
+                        : sortConfig.key === "one_year"
                         ? "1Y"
                         : sortConfig.key === "three_year"
                         ? "3Y"
-                        : "5Y"
+                        : sortConfig.key === "five_year"
+                        ? "5Y"
+                        : sortConfig.key === "one_year_dividend"
+                        ? "1Y Div"
+                        : sortConfig.key === "three_year_dividend"
+                        ? "3Y Div"
+                        : sortConfig.key === "five_year_dividend"
+                        ? "5Y Div"
+                        : "Custom"
                     } (${sortConfig.direction === "asc" ? "low → high" : "high → low"})`
                   : "No sorting applied"
               ),
@@ -628,7 +644,37 @@
                           onClick: () => handleHeaderClick("five_year"),
                         },
                         sortLabel("five_year", "5Y")
-                      )
+                      ),
+                      data && data.include_dividends
+                        ? React.createElement(
+                            "th",
+                            {
+                              className: "th-clickable",
+                              onClick: () => handleHeaderClick("one_year_dividend"),
+                            },
+                            sortLabel("one_year_dividend", "1Y Div")
+                          )
+                        : null,
+                      data && data.include_dividends
+                        ? React.createElement(
+                            "th",
+                            {
+                              className: "th-clickable",
+                              onClick: () => handleHeaderClick("three_year_dividend"),
+                            },
+                            sortLabel("three_year_dividend", "3Y Div")
+                          )
+                        : null,
+                      data && data.include_dividends
+                        ? React.createElement(
+                            "th",
+                            {
+                              className: "th-clickable",
+                              onClick: () => handleHeaderClick("five_year_dividend"),
+                            },
+                            sortLabel("five_year_dividend", "5Y Div")
+                          )
+                        : null
                     )
                   ),
                   React.createElement(
@@ -675,7 +721,28 @@
                           "td",
                           { style: { color: (s.five_year ?? 0) >= 0 ? "#22c55e" : "#ef4444" } },
                           formatPct(s.five_year)
-                        )
+                        ),
+                        data && data.include_dividends
+                          ? React.createElement(
+                              "td",
+                              { style: { color: "#38bdf8" } },
+                              formatPct(s.one_year_dividend)
+                            )
+                          : null,
+                        data && data.include_dividends
+                          ? React.createElement(
+                              "td",
+                              { style: { color: "#38bdf8" } },
+                              formatPct(s.three_year_dividend)
+                            )
+                          : null,
+                        data && data.include_dividends
+                          ? React.createElement(
+                              "td",
+                              { style: { color: "#38bdf8" } },
+                              formatPct(s.five_year_dividend)
+                            )
+                          : null
                       )
                     )
                   )
