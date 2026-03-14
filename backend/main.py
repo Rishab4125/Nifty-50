@@ -93,6 +93,18 @@ NIFTY_50_SYMBOLS: Dict[str, str] = {
 }
 
 
+def _years_ago(as_of: date, years: int) -> date:
+    """
+    Move back exactly `years` calendar years, adjusting for leap years.
+    E.g. 2024-02-29 -> 2019-02-28 for 5 years ago.
+    """
+    try:
+        return as_of.replace(year=as_of.year - years)
+    except ValueError:
+        # Handles dates like Feb 29 which don't exist in the target year.
+        return as_of.replace(month=2, day=28, year=as_of.year - years)
+
+
 def _get_history_with_actions(ticker: str, start: date, end: date) -> pd.DataFrame:
     """Download price history, stock splits, and dividends for a ticker."""
     yf_ticker = yf.Ticker(ticker)
@@ -150,7 +162,7 @@ def _compute_horizon_return(
     if end_ts is None:
         return None
 
-    start_date = as_of - timedelta(days=365 * years)
+    start_date = _years_ago(as_of, years)
     start_ts = _nearest_trading_day(df, start_date)
     if start_ts is None:
         return None
@@ -176,7 +188,8 @@ def _compute_horizon_return(
 def _compute_stock_returns(
     symbol: str, ticker: str, as_of: date, include_dividends: bool
 ) -> StockReturn:
-    start_for_5y = as_of - timedelta(days=365 * 5 + 10)
+    # Fetch enough history to cover 5Y lookback plus a small buffer for holidays.
+    start_for_5y = _years_ago(as_of, 5) - timedelta(days=7)
     df = _get_history_with_actions(ticker, start_for_5y, as_of)
 
     one = _compute_horizon_return(df, as_of, 1, include_dividends)
