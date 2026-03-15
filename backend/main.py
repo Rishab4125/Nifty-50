@@ -139,84 +139,6 @@ def _get_history(ticker: str, start: date, end: date) -> pd.DataFrame:
     return df
 
 
-def _normalize_history_index(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Ensure DatetimeIndex is tz-naive so date comparisons work.
-    """
-    if df is None or df.empty:
-        return df
-    df = df.copy()
-    df.index = pd.to_datetime(df.index)
-    try:
-        df.index = df.index.tz_localize(None)
-    except (TypeError, AttributeError):
-        pass
-    return df
-
-
-def _download_histories(tickers: List[str], start: date, end: date) -> Dict[str, pd.DataFrame]:
-    """
-    Batch-download history for many tickers in one Yahoo request via yfinance.
-
-    Returns a mapping: ticker -> dataframe with columns like Close/Adj Close/etc.
-    Missing tickers map to an empty dataframe.
-    """
-    # yfinance treats `end` as exclusive; add 1 day to include as_of date.
-    end_exclusive = end + timedelta(days=1)
-    tickers = [t for t in tickers if t]
-    if not tickers:
-        return {}
-
-    # With multiple tickers, yfinance returns a DataFrame with MultiIndex columns:
-    # level 0: field (Open/Close/Adj Close/...) and level 1: ticker (or vice versa),
-    # depending on yfinance version/settings. We normalize below.
-    bulk = yf.download(
-        tickers=" ".join(tickers),
-        start=start,
-        end=end_exclusive,
-        auto_adjust=False,
-        group_by="ticker",
-        threads=True,
-        progress=False,
-    )
-    if bulk is None or bulk.empty:
-        return {t: pd.DataFrame() for t in tickers}
-
-    bulk = _normalize_history_index(bulk)
-
-    out: Dict[str, pd.DataFrame] = {}
-
-    # Case A: MultiIndex columns
-    if isinstance(bulk.columns, pd.MultiIndex):
-        # Try "group_by=ticker" shape first: columns like (TICKER, Field)
-        if tickers[0] in bulk.columns.get_level_values(0):
-            for t in tickers:
-                try:
-                    df_t = bulk[t].copy()
-                except Exception:
-                    df_t = pd.DataFrame()
-                out[t] = _normalize_history_index(df_t)
-            return out
-
-        # Otherwise assume columns like (Field, TICKER)
-        lvl1 = bulk.columns.get_level_values(1)
-        for t in tickers:
-            if t in lvl1:
-                df_t = bulk.xs(t, axis=1, level=1).copy()
-                out[t] = _normalize_history_index(df_t)
-            else:
-                out[t] = pd.DataFrame()
-        return out
-
-    # Case B: Single ticker fallback (non-multiindex)
-    if len(tickers) == 1:
-        out[tickers[0]] = bulk
-        return out
-
-    # Unexpected shape; safest fallback: mark all empty.
-    return {t: pd.DataFrame() for t in tickers}
-
-
 def _compute_horizon_return(
     df: pd.DataFrame, as_of: date, years: int, include_dividends: bool
 ) -> Optional[float]:
@@ -339,25 +261,6 @@ def _compute_stock_returns(
     )
 
 
-def _compute_stock_returns_from_history(
-    symbol: str, df: pd.DataFrame, as_of: date, include_dividends: bool
-) -> StockReturn:
-    df = _normalize_history_index(df)
-    one, one_div = _compute_horizon_returns_with_dividends(df, as_of, 1, include_dividends)
-    three, three_div = _compute_horizon_returns_with_dividends(df, as_of, 3, include_dividends)
-    five, five_div = _compute_horizon_returns_with_dividends(df, as_of, 5, include_dividends)
-    return StockReturn(
-        symbol=symbol,
-        name=None,
-        one_year=one,
-        three_year=three,
-        five_year=five,
-        one_year_dividend=one_div,
-        three_year_dividend=three_div,
-        five_year_dividend=five_div,
-    )
-
-
 @app.post("/api/returns", response_model=ReturnsResponse)
 def get_nifty_returns(query: ReturnsQuery) -> ReturnsResponse:
     as_of = query.as_of_date
@@ -365,15 +268,9 @@ def get_nifty_returns(query: ReturnsQuery) -> ReturnsResponse:
         raise HTTPException(status_code=400, detail="as_of_date cannot be in the future")
 
     stocks: List[StockReturn] = []
-    # Batch download once instead of 50 individual history() calls.
-    start_for_5y = _years_ago(as_of, 5) - timedelta(days=7)
-    tickers = list(NIFTY_50_SYMBOLS.values())
-    histories = _download_histories(tickers, start_for_5y, as_of)
-
     for symbol, ticker in NIFTY_50_SYMBOLS.items():
         try:
-            df = histories.get(ticker, pd.DataFrame())
-            sr = _compute_stock_returns_from_history(symbol, df, as_of, query.include_dividends)
+            sr = _compute_stock_returns(symbol, ticker, as_of, query.include_dividends)
             stocks.append(sr)
         except Exception:
             stocks.append(
@@ -431,3 +328,4 @@ def debug_ticker(ticker: str) -> DebugResponse:
         end_date=last_idx.date(),
         approx_5y_return=approx,
     )
+
