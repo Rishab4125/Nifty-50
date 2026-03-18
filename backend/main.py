@@ -22,6 +22,9 @@ class StockReturn(BaseModel):
     one_year_dividend: Optional[float] = None
     three_year_dividend: Optional[float] = None
     five_year_dividend: Optional[float] = None
+    price: Optional[float] = None
+    week52_low: Optional[float] = None
+    week52_high: Optional[float] = None
 
 
 class ReturnsResponse(BaseModel):
@@ -71,8 +74,8 @@ NIFTY_50_SYMBOLS: Dict[str, str] = {
     "BAJFINANCE": "BAJFINANCE.NS",
     "ASIANPAINT": "ASIANPAINT.NS",
     "MARUTI": "MARUTI.NS",
-    "Bharat Electronics": "BEL.NS",
     "SUNPHARMA": "SUNPHARMA.NS",
+    "Bharat Electronics": "BEL.NS",
     "TITAN": "TITAN.NS",
     "ULTRACEMCO": "ULTRACEMCO.NS",
     "NESTLEIND": "NESTLEIND.NS",
@@ -250,6 +253,38 @@ def _compute_stock_returns(
     # We skip name lookups to avoid extra Yahoo calls that can fail.
     name = None
 
+    # 52W range + as-of price, computed from raw history.
+    price = None
+    week52_low = None
+    week52_high = None
+    if not df.empty and len(df.index) > 0 and "Close" in df.columns:
+        as_of_ts = pd.to_datetime(as_of)
+        allowed_end = df.index[df.index <= as_of_ts]
+        if len(allowed_end) > 0:
+            end_ts = allowed_end[-1]
+            try:
+                price = float(df.loc[end_ts, "Close"])
+            except Exception:
+                price = None
+
+            # Use trailing 52 weeks ending at end_ts.
+            window_start = end_ts - pd.Timedelta(days=365)
+            window_df = df.loc[window_start:end_ts]
+            if not window_df.empty:
+                # Prefer intraday High/Low if present; fall back to Close.
+                if "Low" in window_df.columns and "High" in window_df.columns:
+                    try:
+                        week52_low = float(window_df["Low"].min())
+                        week52_high = float(window_df["High"].max())
+                    except Exception:
+                        week52_low, week52_high = None, None
+                else:
+                    try:
+                        week52_low = float(window_df["Close"].min())
+                        week52_high = float(window_df["Close"].max())
+                    except Exception:
+                        week52_low, week52_high = None, None
+
     return StockReturn(
         symbol=symbol,
         name=name,
@@ -259,6 +294,9 @@ def _compute_stock_returns(
         one_year_dividend=one_div,
         three_year_dividend=three_div,
         five_year_dividend=five_div,
+        price=price,
+        week52_low=week52_low,
+        week52_high=week52_high,
     )
 
 
@@ -329,4 +367,4 @@ def debug_ticker(ticker: str) -> DebugResponse:
         end_date=last_idx.date(),
         approx_5y_return=approx,
     )
-
+    
