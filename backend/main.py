@@ -71,6 +71,7 @@ NIFTY_50_SYMBOLS: Dict[str, str] = {
     "BAJFINANCE": "BAJFINANCE.NS",
     "ASIANPAINT": "ASIANPAINT.NS",
     "MARUTI": "MARUTI.NS",
+    "Bharat Electronics": "BEL.NS",
     "SUNPHARMA": "SUNPHARMA.NS",
     "TITAN": "TITAN.NS",
     "ULTRACEMCO": "ULTRACEMCO.NS",
