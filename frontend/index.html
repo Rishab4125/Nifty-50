@@ -1,760 +1,370 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <title>Nifty 50 Return Tracker</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <link
-      rel="stylesheet"
-      href="https://cdnjs.cloudflare.com/ajax/libs/modern-normalize/2.0.0/modern-normalize.min.css"
-    />
-    <style>
-      body {
-        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-          sans-serif;
-        background: #050816;
-        color: #e5e7eb;
-        margin: 0;
-        padding: 24px;
-      }
+from datetime import date, timedelta
+from typing import List, Optional, Dict
 
-      .app-shell {
-        max-width: 1200px;
-        margin: 0 auto;
-      }
+import pandas as pd
+import yfinance as yf
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+import requests
 
-      .card {
-        background: radial-gradient(circle at top left, #1f2937, #020617);
-        border-radius: 16px;
-        padding: 20px 24px;
-        box-shadow: 0 24px 80px rgba(15, 23, 42, 0.9);
-        border: 1px solid rgba(148, 163, 184, 0.25);
-      }
 
-      h1 {
-        font-size: 1.8rem;
-        margin-bottom: 0.25rem;
-      }
+session = requests.Session()
+session.headers.update({"User-Agent": "Mozilla/5.0 (compatible; Nifty50ReturnsBot/1.0)"})
+yf.utils.requests = lambda : session
 
-      h2 {
-        font-size: 1.1rem;
-        margin-top: 1.5rem;
-        margin-bottom: 0.5rem;
-        color: #9ca3af;
-      }
+class StockReturn(BaseModel):
+    symbol: str
+    name: Optional[str]
+    one_year: Optional[float]
+    three_year: Optional[float]
+    five_year: Optional[float]
+    one_year_dividend: Optional[float] = None
+    three_year_dividend: Optional[float] = None
+    five_year_dividend: Optional[float] = None
+    price: Optional[float] = None
+    week52_low: Optional[float] = None
+    week52_high: Optional[float] = None
 
-      .subheading {
-        color: #9ca3af;
-        margin-bottom: 1.25rem;
-      }
 
-      .controls {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 16px;
-        align-items: center;
-        margin-bottom: 1rem;
-      }
+class ReturnsResponse(BaseModel):
+    as_of_date: date
+    include_dividends: bool
+    stocks: List[StockReturn]
 
-      .field {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-        font-size: 0.9rem;
-      }
 
-      .field label {
-        color: #9ca3af;
-      }
+class DebugResponse(BaseModel):
+    symbol: str
+    rows: int
+    start_date: Optional[date]
+    end_date: Optional[date]
+    approx_5y_return: Optional[float]
 
-      .field input[type="date"] {
-        padding: 6px 10px;
-        border-radius: 8px;
-        border: 1px solid #4b5563;
-        background: #020617;
-        color: #e5e7eb;
-      }
 
-      .toggle {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        cursor: pointer;
-      }
+class ReturnsQuery(BaseModel):
+    as_of_date: date
+    include_dividends: bool = False
 
-      .toggle input {
-        display: none;
-      }
 
-      .toggle-pill {
-        width: 38px;
-        height: 20px;
-        border-radius: 999px;
-        background: #374151;
-        position: relative;
-        transition: background 0.18s ease;
-      }
+app = FastAPI(title="Nifty 50 Returns API")
 
-      .toggle-pill-knob {
-        position: absolute;
-        top: 2px;
-        left: 2px;
-        width: 16px;
-        height: 16px;
-        border-radius: 999px;
-        background: #e5e7eb;
-        transition: transform 0.18s ease;
-      }
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-      .toggle input:checked + .toggle-pill {
-        background: #22c55e;
-      }
 
-      .toggle input:checked + .toggle-pill .toggle-pill-knob {
-        transform: translateX(18px);
-      }
+NIFTY_50_SYMBOLS: Dict[str, str] = {
+    # Mapping: NSE symbol -> Yahoo Finance ticker
+    "RELIANCE": "RELIANCE.NS",
+    "HDFCBANK": "HDFCBANK.NS",
+    "ICICIBANK": "ICICIBANK.NS",
+    "INFY": "INFY.NS",
+    "TCS": "TCS.NS",
+    "ITC": "ITC.NS",
+    "LT": "LT.NS",
+    "SBIN": "SBIN.NS",
+    "KOTAKBANK": "KOTAKBANK.NS",
+    "AXISBANK": "AXISBANK.NS",
+    "HINDUNILVR": "HINDUNILVR.NS",
+    "BHARTIARTL": "BHARTIARTL.NS",
+    "BAJFINANCE": "BAJFINANCE.NS",
+    "ASIANPAINT": "ASIANPAINT.NS",
+    "MARUTI": "MARUTI.NS",
+    "SUNPHARMA": "SUNPHARMA.NS",
+    "Bharat Electronics": "BEL.NS",
+    "TITAN": "TITAN.NS",
+    "ULTRACEMCO": "ULTRACEMCO.NS",
+    "NESTLEIND": "NESTLEIND.NS",
+    "HCLTECH": "HCLTECH.NS",
+    "WIPRO": "WIPRO.NS",
+    "ONGC": "ONGC.NS",
+    "TMPV": "TMPV.NS",
+    "COALINDIA": "COALINDIA.NS",
+    "BAJAJ-AUTO": "BAJAJ-AUTO.NS",
+    "TATASTEEL": "TATASTEEL.NS",
+    "JSWSTEEL": "JSWSTEEL.NS",
+    "POWERGRID": "POWERGRID.NS",
+    "NTPC": "NTPC.NS",
+    "ADANIENT": "ADANIENT.NS",
+    "ADANIPORTS": "ADANIPORTS.NS",
+    "DIVISLAB": "DIVISLAB.NS",
+    "CIPLA": "CIPLA.NS",
+    "DRREDDY": "DRREDDY.NS",
+    "GRASIM": "GRASIM.NS",
+    "HDFCLIFE": "HDFCLIFE.NS",
+    "SBILIFE": "SBILIFE.NS",
+    "BAJAJFINSV": "BAJAJFINSV.NS",
+    "BRITANNIA": "BRITANNIA.NS",
+    "HEROMOTOCO": "HEROMOTOCO.NS",
+    "EICHERMOT": "EICHERMOT.NS",
+    "TECHM": "TECHM.NS",
+    "UPL": "UPL.NS",
+    "SHREECEM": "SHREECEM.NS",
+    "M&M": "M&M.NS",
+    "TATACONSUM": "TATACONSUM.NS",
+    "BPCL": "BPCL.NS",
+    "IOC": "IOC.NS",
+    "HINDALCO": "HINDALCO.NS",
+}
 
-      button.primary {
-        border-radius: 999px;
-        background: linear-gradient(135deg, #22c55e, #16a34a);
-        color: #020617;
-        padding: 8px 18px;
-        border: none;
-        font-weight: 600;
-        cursor: pointer;
-        font-size: 0.9rem;
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        box-shadow: 0 12px 30px rgba(34, 197, 94, 0.35);
-      }
 
-      button.primary:disabled {
-        opacity: 0.5;
-        cursor: default;
-        box-shadow: none;
-      }
+def _years_ago(as_of: date, years: int) -> date:
+    """
+    Move back exactly `years` calendar years, adjusting for leap years.
+    E.g. 2024-02-29 -> 2019-02-28 for 5 years ago.
+    """
+    try:
+        return as_of.replace(year=as_of.year - years)
+    except ValueError:
+        # Handles dates like Feb 29 which don't exist in the target year.
+        return as_of.replace(month=2, day=28, year=as_of.year - years)
 
-      .status {
-        font-size: 0.85rem;
-        color: #9ca3af;
-        min-height: 20px;
-        margin-bottom: 0.5rem;
-      }
 
-      table {
-        width: 100%;
-        border-collapse: collapse;
-        margin-top: 0.5rem;
-        font-size: 0.85rem;
-      }
+def _get_history(ticker: str, start: date, end: date) -> pd.DataFrame:
+    """
+    Download raw price history for a ticker, in the same spirit as test_yfinance.py.
+    """
+    yf_ticker = yf.Ticker(ticker)
+    df = yf_ticker.history(start=start, end=end + timedelta(days=1), auto_adjust=False)
+    if df.empty:
+        return df
+    # Normalise index and ensure we have expected columns if present.
+    df.index = pd.to_datetime(df.index)
+    # yfinance can return timezone-aware indices; make them tz-naive so that
+    # comparisons with plain dates (as_of_date) don't raise TypeError.
+    try:
+        df.index = df.index.tz_localize(None)
+    except (TypeError, AttributeError):
+        pass
+    return df
 
-      th,
-      td {
-        padding: 8px 10px;
-        text-align: right;
-        border-bottom: 1px solid rgba(31, 41, 55, 0.9);
-      }
 
-      th:first-child,
-      td:first-child {
-        text-align: left;
-      }
+def _compute_horizon_return(
+    df: pd.DataFrame, as_of: date, years: int, include_dividends: bool
+) -> Optional[float]:
+    if df.empty:
+        return None
 
-      thead {
-        background: rgba(15, 23, 42, 0.95);
-        position: sticky;
-        top: 0;
-        z-index: 1;
-      }
+    # Choose price series:
+    # - If include_dividends: use Adj Close (Yahoo total-return style).
+    # - If exclude_dividends: use Close (price-only; splits handled by Yahoo).
+    price_col = "Adj Close" if include_dividends and "Adj Close" in df.columns else "Close"
+    if price_col not in df.columns:
+        return None
 
-      tbody tr:nth-child(even) {
-        background: rgba(15, 23, 42, 0.6);
-      }
+    idx = df.index
+    if len(idx) == 0:
+        return None
 
-      tbody tr:hover {
-        background: rgba(31, 41, 55, 0.95);
-      }
+    as_of_ts = pd.to_datetime(as_of)
+    allowed_end = idx[idx <= as_of_ts]
+    if len(allowed_end) == 0:
+        return None
+    end_ts = allowed_end[-1]
 
-      .returns-container {
-        max-height: 550px;
-        overflow: auto;
-        border-radius: 12px;
-        border: 1px solid rgba(55, 65, 81, 0.9);
-        margin-top: 0.5rem;
-      }
+    start_target = _years_ago(as_of, years)
+    start_ts_candidates = idx[idx >= pd.to_datetime(start_target)]
+    if len(start_ts_candidates) == 0:
+        start_ts = idx[0]
+    else:
+        start_ts = start_ts_candidates[0]
 
-      .badge {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        padding: 4px 10px;
-        border-radius: 999px;
-        font-size: 0.75rem;
-        background: rgba(15, 23, 42, 1);
-        border: 1px solid rgba(75, 85, 99, 0.9);
-        color: #9ca3af;
-      }
+    # Slice and compute simple total return.
+    start_price = float(df.loc[start_ts, price_col])
+    end_price = float(df.loc[end_ts, price_col])
+    if start_price <= 0:
+        return None
 
-      .badge-dot {
-        width: 8px;
-        height: 8px;
-        border-radius: 999px;
-        background: #22c55e;
-      }
+    return end_price / start_price - 1.0
 
-      .pill {
-        display: inline-flex;
-        align-items: center;
-        border-radius: 999px;
-        padding: 3px 9px;
-        font-size: 0.7rem;
-        border: 1px solid rgba(148, 163, 184, 0.5);
-        color: #9ca3af;
-        gap: 6px;
-      }
 
-      .pill-dot {
-        width: 7px;
-        height: 7px;
-        border-radius: 999px;
-        background: #38bdf8;
-      }
+def _compute_horizon_returns_with_dividends(
+    df: pd.DataFrame, as_of: date, years: int, include_dividends: bool
+) -> (Optional[float], Optional[float]):
+    """
+    Compute price-only return and dividend contribution separately when possible.
+    Returns (total_return_used, dividend_return).
+    """
+    if df.empty:
+        return None, None
 
-      .pill-dot.secondary {
-        background: #a855f7;
-      }
+    cols = df.columns
+    has_close = "Close" in cols
+    has_adj = "Adj Close" in cols
 
-      .pill-dot.tertiary {
-        background: #f97316;
-      }
+    # Fallback to the simpler logic if we don't have both series.
+    if not (has_close and has_adj):
+        base = _compute_horizon_return(df, as_of, years, include_dividends)
+        return base, None
 
-      .pill + .pill {
-        margin-left: 6px;
-      }
+    idx = df.index
+    if len(idx) == 0:
+        return None, None
 
-      .pill-row {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 6px;
-        margin-top: 4px;
-      }
+    as_of_ts = pd.to_datetime(as_of)
+    allowed_end = idx[idx <= as_of_ts]
+    if len(allowed_end) == 0:
+        return None, None
+    end_ts = allowed_end[-1]
 
-      .table-toolbar {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        gap: 12px;
-        margin-top: 0.25rem;
-        margin-bottom: 0.25rem;
-        font-size: 0.8rem;
-        color: #9ca3af;
-      }
+    start_target = _years_ago(as_of, years)
+    start_ts_candidates = idx[idx >= pd.to_datetime(start_target)]
+    start_ts = start_ts_candidates[0] if len(start_ts_candidates) else idx[0]
 
-      .sort-indicator {
-        font-size: 0.7rem;
-        opacity: 0.8;
-        margin-left: 4px;
-      }
+    start_close = float(df.loc[start_ts, "Close"])
+    end_close = float(df.loc[end_ts, "Close"])
+    start_adj = float(df.loc[start_ts, "Adj Close"])
+    end_adj = float(df.loc[end_ts, "Adj Close"])
 
-      .th-clickable {
-        cursor: pointer;
-        user-select: none;
-      }
+    if start_close <= 0 or start_adj <= 0:
+        return None, None
 
-      @media (max-width: 768px) {
-        body {
-          padding: 16px;
-        }
-        .card {
-          padding: 16px;
-        }
-        .controls {
-          align-items: flex-start;
-        }
-        table {
-          font-size: 0.8rem;
-        }
-        th,
-        td {
-          padding: 6px 8px;
-        }
-      }
-    </style>
-  </head>
-  <body>
-    <div id="root"></div>
+    price_return = end_close / start_close - 1.0
+    total_return = end_adj / start_adj - 1.0
+    dividend_return = total_return - price_return
 
-    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
-    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-    <script>
-      const { useState, useEffect } = React;
+    if include_dividends:
+        return total_return, dividend_return
+    else:
+        return price_return, dividend_return
 
-      const BACKEND_BASE_URL =
-        window.location.hostname === "localhost" ||
-        window.location.hostname === "127.0.0.1"
-          ? "http://127.0.0.1:8000"
-          : "https://nifty-50-fi1v.onrender.com";
 
-      // const BACKEND_BASE_URL = "http://127.0.0.1:8000";
+def _compute_stock_returns(
+    symbol: str, ticker: str, as_of: date, include_dividends: bool
+) -> StockReturn:
+    # Fetch enough history to cover 5Y lookback plus a small buffer for holidays.
+    start_for_5y = _years_ago(as_of, 5) - timedelta(days=7)
+    df = _get_history(ticker, start_for_5y, as_of)
 
-      function formatPct(v) {
-        if (v === null || v === undefined || Number.isNaN(v)) return "—";
-        const pct = v * 100;
-        return pct.toFixed(1) + "%";
-      }
+    one, one_div = _compute_horizon_returns_with_dividends(
+        df, as_of, 1, include_dividends
+    )
+    three, three_div = _compute_horizon_returns_with_dividends(
+        df, as_of, 3, include_dividends
+    )
+    five, five_div = _compute_horizon_returns_with_dividends(
+        df, as_of, 5, include_dividends
+    )
 
-      function NiftyApp() {
-        const [asOf, setAsOf] = useState(() => {
-          const today = new Date();
-          return today.toISOString().slice(0, 10);
-        });
-        const [includeDividends, setIncludeDividends] = useState(false);
-        const [loading, setLoading] = useState(false);
-        const [error, setError] = useState("");
-        const [data, setData] = useState(null);
-        const [sortConfig, setSortConfig] = useState({
-          key: "five_year",
-          direction: "desc",
-        });
+    # We skip name lookups to avoid extra Yahoo calls that can fail.
+    name = None
 
-        async function fetchReturns() {
-          setLoading(true);
-          setError("");
-          try {
-            const res = await fetch(`${BACKEND_BASE_URL}/api/returns`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                as_of_date: asOf,
-                include_dividends: includeDividends,
-              }),
-            });
-            if (!res.ok) {
-              const text = await res.text();
-              throw new Error(text || "Request failed");
-            }
-            const json = await res.json();
-            setData(json);
-          } catch (e) {
-            console.error(e);
-            setError(
-              "Could not load data. Ensure backend (FastAPI) is running on port 8000."
-            );
-          } finally {
-            setLoading(false);
-          }
-        }
+    # 52W range + as-of price, computed from raw history.
+    price = None
+    week52_low = None
+    week52_high = None
+    if not df.empty and len(df.index) > 0 and "Close" in df.columns:
+        as_of_ts = pd.to_datetime(as_of)
+        allowed_end = df.index[df.index <= as_of_ts]
+        if len(allowed_end) > 0:
+            end_ts = allowed_end[-1]
+            try:
+                price = float(df.loc[end_ts, "Close"])
+            except Exception:
+                price = None
 
-        useEffect(() => {
-          fetchReturns();
-        }, []);
+            # Use trailing 52 weeks ending at end_ts.
+            window_start = end_ts - pd.Timedelta(days=365)
+            window_df = df.loc[window_start:end_ts]
+            if not window_df.empty:
+                # Prefer intraday High/Low if present; fall back to Close.
+                if "Low" in window_df.columns and "High" in window_df.columns:
+                    try:
+                        week52_low = float(window_df["Low"].min())
+                        week52_high = float(window_df["High"].max())
+                    except Exception:
+                        week52_low, week52_high = None, None
+                else:
+                    try:
+                        week52_low = float(window_df["Close"].min())
+                        week52_high = float(window_df["Close"].max())
+                    except Exception:
+                        week52_low, week52_high = None, None
 
-        function sortedStocks() {
-          if (!data || !data.stocks) return [];
-          const stocks = [...data.stocks];
-          const { key, direction } = sortConfig || {};
-          if (!key) return stocks;
-          stocks.sort((a, b) => {
-            if (key === "symbol") {
-              const va = (a.symbol || "").toUpperCase();
-              const vb = (b.symbol || "").toUpperCase();
-              if (va === vb) return 0;
-              if (direction === "asc") return va < vb ? -1 : 1;
-              return va > vb ? -1 : 1;
-            } else {
-              const va = a[key] ?? -Infinity;
-              const vb = b[key] ?? -Infinity;
-              if (va === vb) return 0;
-              if (direction === "asc") return va < vb ? -1 : 1;
-              return va > vb ? -1 : 1;
-            }
-          });
-          return stocks;
-        }
+    return StockReturn(
+        symbol=symbol,
+        name=name,
+        one_year=one,
+        three_year=three,
+        five_year=five,
+        one_year_dividend=one_div,
+        three_year_dividend=three_div,
+        five_year_dividend=five_div,
+        price=price,
+        week52_low=week52_low,
+        week52_high=week52_high,
+    )
 
-        function handleHeaderClick(key) {
-          setSortConfig((prev) => {
-            if (!prev || prev.key !== key) {
-              return { key, direction: "desc" };
-            }
-            if (prev.direction === "desc") {
-              return { key, direction: "asc" };
-            }
-            if (prev.direction === "asc") {
-              return { key: null, direction: "desc" };
-            }
-            return { key, direction: "desc" };
-          });
-        }
 
-        function sortLabel(key, label) {
-          if (!sortConfig || sortConfig.key !== key || !sortConfig.key) {
-            return label;
-          }
-          const arrow = sortConfig.direction === "asc" ? "▲" : "▼";
-          return (
-            label +
-            " " +
-            String.fromCharCode(160) +
-            String.fromCharCode(160) +
-            arrow
-          );
-        }
+@app.post("/api/returns", response_model=ReturnsResponse)
+def get_nifty_returns(query: ReturnsQuery) -> ReturnsResponse:
+    as_of = query.as_of_date
+    if as_of > date.today():
+        raise HTTPException(status_code=400, detail="as_of_date cannot be in the future")
 
-        function exportCsv() {
-          if (!data || !data.stocks) return;
-          const rows = [];
-          rows.push([
-            "Symbol",
-            "Name",
-            "1Y Return",
-            "3Y Return",
-            "5Y Return",
-            "1Y Dividend",
-            "3Y Dividend",
-            "5Y Dividend",
-            "AsOf",
-            "IncludeDividends",
-          ]);
-          sortedStocks().forEach((s) => {
-            rows.push([
-              s.symbol,
-              s.name || "",
-              s.one_year ?? "",
-              s.three_year ?? "",
-              s.five_year ?? "",
-              s.one_year_dividend ?? "",
-              s.three_year_dividend ?? "",
-              s.five_year_dividend ?? "",
-              data.as_of_date,
-              data.include_dividends ? "1" : "0",
-            ]);
-          });
-          const csv = rows
-            .map((row) =>
-              row
-                .map((v) => {
-                  const val = v === null || v === undefined ? "" : String(v);
-                  if (val.includes(",") || val.includes('"')) {
-                    return `"${val.replace(/"/g, '""')}"`;
-                  }
-                  return val;
-                })
-                .join(",")
-            )
-            .join("\n");
-          const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement("a");
-          const suffix = includeDividends ? "with-dividends" : "price-only";
-          a.href = url;
-          a.download = `nifty50-returns-${data.as_of_date}-${suffix}.csv`;
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          URL.revokeObjectURL(url);
-        }
-
-        return React.createElement(
-          "div",
-          { className: "app-shell" },
-          React.createElement(
-            "div",
-            { className: "card" },
-            React.createElement(
-              "div",
-              null,
-              React.createElement(
-                "div",
-                { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 } },
-                React.createElement(
-                  "div",
-                  null,
-                  React.createElement("h1", null, "Nifty 50 Return Tracker"),
-                  React.createElement(
-                    "div",
-                    { className: "subheading" },
-                    "Exact 1 / 3 / 5 year returns as of a chosen date, with splits/bonus handled and optional dividends."
-                  )
-                ),
-                React.createElement(
-                  "div",
-                  { className: "badge" },
-                  React.createElement("span", { className: "badge-dot" }),
-                  "Live data via Yahoo Finance (adjusted for splits; dividends toggle)"
-                )
-              ),
-              React.createElement(
-                "div",
-                { className: "pill-row" },
-                React.createElement(
-                  "div",
-                  { className: "pill" },
-                  React.createElement("span", { className: "pill-dot" }),
-                  "Price return with splits/bonus"
-                ),
-                React.createElement(
-                  "div",
-                  { className: "pill" },
-                  React.createElement("span", { className: "pill-dot secondary" }),
-                  "Optional dividend cashflows"
-                ),
-                React.createElement(
-                  "div",
-                  { className: "pill" },
-                  React.createElement("span", { className: "pill-dot tertiary" }),
-                  "Exact lookback from selected date"
-                )
-              )
-            ),
-            React.createElement(
-              "div",
-              { className: "controls" },
-              React.createElement(
-                "div",
-                { className: "field" },
-                React.createElement("label", null, "As-of date"),
-                React.createElement("input", {
-                  type: "date",
-                  value: asOf,
-                  max: new Date().toISOString().slice(0, 10),
-                  onChange: (e) => setAsOf(e.target.value),
-                })
-              ),
-              React.createElement(
-                "label",
-                { className: "toggle" },
-                React.createElement("input", {
-                  type: "checkbox",
-                  checked: includeDividends,
-                  onChange: (e) => setIncludeDividends(e.target.checked),
-                }),
-                React.createElement(
-                  "span",
-                  { className: "toggle-pill" },
-                  React.createElement("span", { className: "toggle-pill-knob" })
-                ),
-                React.createElement(
-                  "span",
-                  null,
-                  includeDividends ? "Include dividends" : "Exclude dividends"
-                )
-              ),
-              React.createElement(
-                "button",
-                {
-                  className: "primary",
-                  onClick: fetchReturns,
-                  disabled: loading,
-                },
-                loading ? "Refreshing…" : "Refresh returns"
-              )
-            ),
-            React.createElement(
-              "div",
-              { className: "status" },
-              error
-                ? error
-                : data
-                ? `As of ${data.as_of_date} · Showing ${
-                    data.stocks?.length || 0
-                  } stocks · Dividends ${
-                    data.include_dividends ? "included" : "excluded"
-                  }.`
-                : "Loading..."
-            ),
-            React.createElement(
-              "div",
-              { className: "table-toolbar" },
-              React.createElement(
-                "span",
-                null,
-                sortConfig && sortConfig.key
-                  ? `Sorted by ${
-                      sortConfig.key === "symbol"
-                        ? "Stock"
-                        : sortConfig.key === "one_year"
-                        ? "1Y"
-                        : sortConfig.key === "three_year"
-                        ? "3Y"
-                        : sortConfig.key === "five_year"
-                        ? "5Y"
-                        : sortConfig.key === "one_year_dividend"
-                        ? "1Y Div"
-                        : sortConfig.key === "three_year_dividend"
-                        ? "3Y Div"
-                        : sortConfig.key === "five_year_dividend"
-                        ? "5Y Div"
-                        : "Custom"
-                    } (${sortConfig.direction === "asc" ? "low → high" : "high → low"})`
-                  : "No sorting applied"
-              ),
-              React.createElement(
-                "button",
-                {
-                  className: "primary",
-                  onClick: exportCsv,
-                  disabled: !data || !data.stocks || loading,
-                },
-                "Export CSV"
-              )
-            ),
-            React.createElement(
-              "div",
-              { className: "returns-container" },
-              data &&
-                React.createElement(
-                  "table",
-                  null,
-                  React.createElement(
-                    "thead",
-                    null,
-                    React.createElement(
-                      "tr",
-                      null,
-                      React.createElement(
-                        "th",
-                        {
-                          className: "th-clickable",
-                          onClick: () => handleHeaderClick("symbol"),
-                        },
-                        sortLabel("symbol", "Stock")
-                      ),
-                      React.createElement(
-                        "th",
-                        {
-                          className: "th-clickable",
-                          onClick: () => handleHeaderClick("one_year"),
-                        },
-                        sortLabel("one_year", "1Y")
-                      ),
-                      React.createElement(
-                        "th",
-                        {
-                          className: "th-clickable",
-                          onClick: () => handleHeaderClick("three_year"),
-                        },
-                        sortLabel("three_year", "3Y")
-                      ),
-                      React.createElement(
-                        "th",
-                        {
-                          className: "th-clickable",
-                          onClick: () => handleHeaderClick("five_year"),
-                        },
-                        sortLabel("five_year", "5Y")
-                      ),
-                      data && data.include_dividends
-                        ? React.createElement(
-                            "th",
-                            {
-                              className: "th-clickable",
-                              onClick: () => handleHeaderClick("one_year_dividend"),
-                            },
-                            sortLabel("one_year_dividend", "1Y Div")
-                          )
-                        : null,
-                      data && data.include_dividends
-                        ? React.createElement(
-                            "th",
-                            {
-                              className: "th-clickable",
-                              onClick: () => handleHeaderClick("three_year_dividend"),
-                            },
-                            sortLabel("three_year_dividend", "3Y Div")
-                          )
-                        : null,
-                      data && data.include_dividends
-                        ? React.createElement(
-                            "th",
-                            {
-                              className: "th-clickable",
-                              onClick: () => handleHeaderClick("five_year_dividend"),
-                            },
-                            sortLabel("five_year_dividend", "5Y Div")
-                          )
-                        : null
-                    )
-                  ),
-                  React.createElement(
-                    "tbody",
-                    null,
-                    sortedStocks().map((s) =>
-                      React.createElement(
-                        "tr",
-                        { key: s.symbol },
-                        React.createElement(
-                          "td",
-                          null,
-                          React.createElement(
-                            "div",
-                            null,
-                            s.symbol,
-                            s.name
-                              ? React.createElement(
-                                  "span",
-                                  {
-                                    style: {
-                                      display: "block",
-                                      fontSize: "0.7rem",
-                                      color: "#9ca3af",
-                                      marginTop: 2,
-                                    },
-                                  },
-                                  s.name
-                                )
-                              : null
-                          )
-                        ),
-                        React.createElement(
-                          "td",
-                          { style: { color: (s.one_year ?? 0) >= 0 ? "#22c55e" : "#ef4444" } },
-                          formatPct(s.one_year)
-                        ),
-                        React.createElement(
-                          "td",
-                          { style: { color: (s.three_year ?? 0) >= 0 ? "#22c55e" : "#ef4444" } },
-                          formatPct(s.three_year)
-                        ),
-                        React.createElement(
-                          "td",
-                          { style: { color: (s.five_year ?? 0) >= 0 ? "#22c55e" : "#ef4444" } },
-                          formatPct(s.five_year)
-                        ),
-                        data && data.include_dividends
-                          ? React.createElement(
-                              "td",
-                              { style: { color: "#38bdf8" } },
-                              formatPct(s.one_year_dividend)
-                            )
-                          : null,
-                        data && data.include_dividends
-                          ? React.createElement(
-                              "td",
-                              { style: { color: "#38bdf8" } },
-                              formatPct(s.three_year_dividend)
-                            )
-                          : null,
-                        data && data.include_dividends
-                          ? React.createElement(
-                              "td",
-                              { style: { color: "#38bdf8" } },
-                              formatPct(s.five_year_dividend)
-                            )
-                          : null
-                      )
-                    )
-                  )
+    stocks: List[StockReturn] = []
+    for symbol, ticker in NIFTY_50_SYMBOLS.items():
+        try:
+            sr = _compute_stock_returns(symbol, ticker, as_of, query.include_dividends)
+            stocks.append(sr)
+        except Exception:
+            stocks.append(
+                StockReturn(
+                    symbol=symbol,
+                    name=None,
+                    one_year=None,
+                    three_year=None,
+                    five_year=None,
                 )
             )
-          )
-        );
-      }
 
-      const root = ReactDOM.createRoot(document.getElementById("root"));
-      root.render(React.createElement(NiftyApp));
-    </script>
-  </body>
-  </html>
+    return ReturnsResponse(as_of_date=as_of, include_dividends=query.include_dividends, stocks=stocks)
 
+
+@app.get("/health")
+def health() -> Dict[str, str]:
+    return {"status": "ok"}
+
+
+@app.get("/debug/{ticker}", response_model=DebugResponse)
+def debug_ticker(ticker: str) -> DebugResponse:
+    """
+    Minimal debug endpoint that mirrors test_yfinance.py behaviour for a single ticker.
+    Helps verify that yfinance + history() work inside the FastAPI process.
+    """
+    as_of = date.today()
+    start = _years_ago(as_of, 5) - timedelta(days=7)
+    df = _get_history(ticker, start, as_of)
+
+    if df.empty:
+        return DebugResponse(
+            symbol=ticker,
+            rows=0,
+            start_date=None,
+            end_date=None,
+            approx_5y_return=None,
+        )
+
+    first_idx = df.index[0]
+    last_idx = df.index[-1]
+
+    price_col = "Adj Close" if "Adj Close" in df.columns else "Close"
+    first_close = float(df[price_col].iloc[0])
+    last_close = float(df[price_col].iloc[-1])
+
+    approx = None
+    if first_close > 0:
+        approx = last_close / first_close - 1.0
+
+    return DebugResponse(
+        symbol=ticker,
+        rows=len(df),
+        start_date=first_idx.date(),
+        end_date=last_idx.date(),
+        approx_5y_return=approx,
+    )
+    
