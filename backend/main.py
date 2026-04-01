@@ -12,6 +12,12 @@ import json
 import math
 from dotenv import load_dotenv
 
+load_dotenv()
+
+session = requests.Session()
+session.headers.update({"User-Agent": "Mozilla/5.0 (compatible; Nifty50ReturnsBot/1.0)"})
+yf.utils.requests = lambda : session
+
 def _clean_float(val) -> Optional[float]:
     if val is None:
         return None
@@ -25,12 +31,6 @@ def _clean_float(val) -> Optional[float]:
 
 from google import genai
 from google.genai import types
-
-load_dotenv()
-
-session = requests.Session()
-session.headers.update({"User-Agent": "Mozilla/5.0 (compatible; Nifty50ReturnsBot/1.0)"})
-yf.utils.requests = lambda : session
 
 class StockReturn(BaseModel):
     symbol: str
