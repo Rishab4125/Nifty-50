@@ -7,7 +7,26 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import requests
+import os
+import json
+import math
+from dotenv import load_dotenv
 
+def _clean_float(val) -> Optional[float]:
+    if val is None:
+        return None
+    try:
+        f = float(val)
+        if math.isnan(f) or math.isinf(f):
+            return None
+        return f
+    except Exception:
+        return None
+
+from google import genai
+from google.genai import types
+
+load_dotenv()
 
 session = requests.Session()
 session.headers.update({"User-Agent": "Mozilla/5.0 (compatible; Nifty50ReturnsBot/1.0)"})
@@ -31,6 +50,7 @@ class ReturnsResponse(BaseModel):
     as_of_date: date
     include_dividends: bool
     stocks: List[StockReturn]
+    portfolio: Optional[StockReturn] = None
 
 
 class DebugResponse(BaseModel):
@@ -44,6 +64,8 @@ class DebugResponse(BaseModel):
 class ReturnsQuery(BaseModel):
     as_of_date: date
     include_dividends: bool = False
+    symbols: Optional[List[str]] = None
+    search_query: Optional[str] = None
 
 
 app = FastAPI(title="Nifty 50 Returns API")
@@ -59,6 +81,7 @@ app.add_middleware(
 
 NIFTY_50_SYMBOLS: Dict[str, str] = {
     # Mapping: NSE symbol -> Yahoo Finance ticker
+    # "TATAMOTORS": "TATAMOTORS.NS",
     "RELIANCE": "RELIANCE.NS",
     "HDFCBANK": "HDFCBANK.NS",
     "ICICIBANK": "ICICIBANK.NS",
@@ -227,10 +250,7 @@ def _compute_horizon_returns_with_dividends(
     total_return = end_adj / start_adj - 1.0
     dividend_return = total_return - price_return
 
-    if include_dividends:
-        return total_return, dividend_return
-    else:
-        return price_return, dividend_return
+    return price_return, dividend_return
 
 
 def _compute_stock_returns(
@@ -288,16 +308,70 @@ def _compute_stock_returns(
     return StockReturn(
         symbol=symbol,
         name=name,
-        one_year=one,
-        three_year=three,
-        five_year=five,
-        one_year_dividend=one_div,
-        three_year_dividend=three_div,
-        five_year_dividend=five_div,
-        price=price,
-        week52_low=week52_low,
-        week52_high=week52_high,
+        one_year=_clean_float(one),
+        three_year=_clean_float(three),
+        five_year=_clean_float(five),
+        one_year_dividend=_clean_float(one_div),
+        three_year_dividend=_clean_float(three_div),
+        five_year_dividend=_clean_float(five_div),
+        price=_clean_float(price),
+        week52_low=_clean_float(week52_low),
+        week52_high=_clean_float(week52_high),
     )
+
+
+def _resolve_search_query_to_symbols(q: str) -> Dict[str, str]:
+    """Call the LLM to resolve a search query into {symbol: ticker}. Raises ValueError if q is blank or LLM fails."""
+    if not q or not q.strip():
+        raise ValueError("Search query must not be empty.")
+
+    prompt = f"""
+    You are a financial assistant for Indian stocks. The user searched for: "{q}".
+    If the query is a sector or theme (e.g. "IT", "Pharma", "Banking"), return the top 15 Indian stocks in that sector.
+    If the query is a specific stock (e.g. "Tata Motors", "RELIANCE"), return that exact stock AND its top 5 closest Indian peers (6 total).
+    Criteria for best matches include: relevance to the query, market cap, performance, RSI, Moving Averages, whether if its cheap or expensive as per current price in market and popularity among Indian investors.
+    Respond ONLY with a valid JSON array of objects. Do not include markdown formatting or backticks.
+    Each object must have exactly two keys: "symbol" (the NSE symbol without .NS, e.g. "TCS") and "ticker" (the Yahoo Finance ticker, e.g. "TCS.NS").
+    """
+    try:
+        client = genai.Client()
+        response = client.models.generate_content(
+            # model='gemini-2.5-flash',
+            model='gemini-3.1-flash-lite-preview',
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                temperature=0.0,
+                response_mime_type="application/json",
+            )
+        )
+        raw_text = response.text.strip()
+        if raw_text.startswith("```json"):
+            raw_text = raw_text[7:]
+        elif raw_text.startswith("```"):
+            raw_text = raw_text[3:]
+        if raw_text.endswith("```"):
+            raw_text = raw_text[:-3]
+        
+        items = json.loads(raw_text.strip())
+        if isinstance(items, list) and len(items) > 0:
+            return {item["symbol"]: item["ticker"] for item in items if "symbol" in item and "ticker" in item}
+        
+        raise ValueError("LLM returned empty or invalid json format.")
+    except Exception as e:
+        print("Error fetching tickers from LLM:", e)
+        raise ValueError(f"LLM AI search failed: {str(e)}")
+
+
+@app.get("/api/tickers")
+def get_tickers(q: Optional[str] = None) -> List[Dict[str, str]]:
+    """Return the list of stock symbols. If q is provided, use AI to generate the list. Otherwise return defaults."""
+    if not q or not q.strip():
+        return [{"symbol": k, "ticker": v} for k, v in NIFTY_50_SYMBOLS.items()]
+    try:
+        resolved = _resolve_search_query_to_symbols(q)
+        return [{"symbol": k, "ticker": v} for k, v in resolved.items()]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/returns", response_model=ReturnsResponse)
@@ -307,7 +381,17 @@ def get_nifty_returns(query: ReturnsQuery) -> ReturnsResponse:
         raise HTTPException(status_code=400, detail="as_of_date cannot be in the future")
 
     stocks: List[StockReturn] = []
-    for symbol, ticker in NIFTY_50_SYMBOLS.items():
+    
+    target_symbols = NIFTY_50_SYMBOLS
+    if query.search_query and query.search_query.strip():
+        try:
+            target_symbols = _resolve_search_query_to_symbols(query.search_query.strip())
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+    elif query.symbols is not None:
+        target_symbols = {s: NIFTY_50_SYMBOLS.get(s, f"{s}.NS") for s in query.symbols}
+
+    for symbol, ticker in target_symbols.items():
         try:
             sr = _compute_stock_returns(symbol, ticker, as_of, query.include_dividends)
             stocks.append(sr)
@@ -322,7 +406,19 @@ def get_nifty_returns(query: ReturnsQuery) -> ReturnsResponse:
                 )
             )
 
-    return ReturnsResponse(as_of_date=as_of, include_dividends=query.include_dividends, stocks=stocks)
+    portfolio = None
+    try:
+        # Calculate returns for the Nifty 50 Index itself as the portfolio benchmark
+        portfolio = _compute_stock_returns("NIFTY 50", "^NSEI", as_of, query.include_dividends)
+    except Exception:
+        pass
+
+    return ReturnsResponse(
+        as_of_date=as_of,
+        include_dividends=query.include_dividends,
+        stocks=stocks,
+        portfolio=portfolio
+    )
 
 
 @app.get("/health")
@@ -365,6 +461,5 @@ def debug_ticker(ticker: str) -> DebugResponse:
         rows=len(df),
         start_date=first_idx.date(),
         end_date=last_idx.date(),
-        approx_5y_return=approx,
+        approx_5y_return=_clean_float(approx),
     )
-    
