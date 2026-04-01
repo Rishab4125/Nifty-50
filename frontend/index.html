@@ -1,918 +1,1229 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <title>Nifty 50 Return Tracker</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <link
-      rel="stylesheet"
-      href="https://cdnjs.cloudflare.com/ajax/libs/modern-normalize/2.0.0/modern-normalize.min.css"
-    />
-    <style>
-      body {
-        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-          sans-serif;
-        background: #050816;
-        color: #e5e7eb;
-        margin: 0;
-        padding: 24px;
+<head>
+  <meta charset="UTF-8" />
+  <title>Nifty 50 Return Tracker</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link 
+    rel="stylesheet"
+    href="https://cdnjs.cloudflare.com/ajax/libs/modern-normalize/2.0.0/modern-normalize.min.css" 
+  />
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+        sans-serif;
+      background: #050816;
+      color: #e5e7eb;
+      margin: 0;
+      padding: 24px;
+    }
+
+    .app-shell {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    .card {
+      background: radial-gradient(circle at top left, #1f2937, #020617);
+      border-radius: 16px;
+      padding: 20px 24px;
+      box-shadow: 0 24px 80px rgba(15, 23, 42, 0.9);
+      border: 1px solid rgba(148, 163, 184, 0.25);
+    }
+
+    h1 {
+      font-size: 1.8rem;
+      margin-bottom: 0.25rem;
+    }
+
+    h2 {
+      font-size: 1.1rem;
+      margin-top: 1.5rem;
+      margin-bottom: 0.5rem;
+      color: #9ca3af;
+    }
+
+    .subheading {
+      color: #9ca3af;
+      margin-bottom: 1.25rem;
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      align-items: center;
+      margin-bottom: 1rem;
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 0.9rem;
+    }
+
+    .field label {
+      color: #9ca3af;
+    }
+
+    .field input[type="date"] {
+      padding: 6px 10px;
+      border-radius: 8px;
+      border: 1px solid #4b5563;
+      background: #020617;
+      color: #e5e7eb;
+    }
+
+    .toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+    }
+
+    .toggle input {
+      display: none;
+    }
+
+    .toggle-pill {
+      width: 38px;
+      height: 20px;
+      border-radius: 999px;
+      background: #374151;
+      position: relative;
+      transition: background 0.18s ease;
+    }
+
+    .toggle-pill-knob {
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 16px;
+      height: 16px;
+      border-radius: 999px;
+      background: #e5e7eb;
+      transition: transform 0.18s ease;
+    }
+
+    .toggle input:checked+.toggle-pill {
+      background: #22c55e;
+    }
+
+    .toggle input:checked+.toggle-pill .toggle-pill-knob {
+      transform: translateX(18px);
+    }
+
+    button.primary {
+      border-radius: 999px;
+      background: linear-gradient(135deg, #22c55e, #16a34a);
+      color: #020617;
+      padding: 8px 18px;
+      border: none;
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 0.9rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      box-shadow: 0 12px 30px rgba(34, 197, 94, 0.35);
+    }
+
+    button.primary:disabled {
+      opacity: 0.5;
+      cursor: default;
+      box-shadow: none;
+    }
+
+    .status {
+      font-size: 0.85rem;
+      color: #9ca3af;
+      min-height: 20px;
+      margin-bottom: 0.5rem;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 0.5rem;
+      font-size: 0.85rem;
+    }
+
+    th,
+    td {
+      padding: 8px 10px;
+      text-align: right;
+      border-bottom: 1px solid rgba(31, 41, 55, 0.9);
+    }
+
+    th:first-child,
+    td:first-child {
+      text-align: left;
+    }
+
+    th:nth-child(2),
+    td:nth-child(2) {
+      text-align: right;
+    }
+
+    thead {
+      background: rgba(15, 23, 42, 0.95);
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+
+    tbody tr:nth-child(even) {
+      background: rgba(15, 23, 42, 0.6);
+    }
+
+    tbody tr:hover {
+      background: rgba(31, 41, 55, 0.95);
+    }
+
+    .returns-container {
+      max-height: 550px;
+      overflow: auto;
+      border-radius: 12px;
+      border: 1px solid rgba(55, 65, 81, 0.9);
+      margin-top: 0.5rem;
+    }
+
+    .stock-meta {
+      min-width: 140px;
+    }
+
+    .range-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 5px;
+      min-width: 150px;
+      /* width: 20%; */
+    }
+
+    .range-price {
+      font-variant-numeric: tabular-nums;
+      font-weight: 700;
+      color: #22c55e;
+      font-size: 0.92em;
+    }
+
+    .range-bar-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+    }
+
+    .range-label {
+      font-size: 0.7rem;
+      color: #9ca3af;
+      width: 14px;
+      text-align: center;
+    }
+
+    .range-bar {
+      position: relative;
+      height: 5px;
+      border-radius: 999px;
+      background: rgba(148, 163, 184, 0.18);
+      border: 1px solid rgba(148, 163, 184, 0.22);
+      flex: 1;
+      overflow: hidden;
+    }
+
+    .range-fill {
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      background: linear-gradient(90deg, rgba(56, 189, 248, 0.35), rgba(168, 85, 247, 0.28));
+    }
+
+    .range-marker {
+      position: absolute;
+      top: 50%;
+      width: 4px;
+      height: 12px;
+      border-radius: 3px;
+      background: #e5e7eb;
+      transform: translate(-50%, -50%);
+      box-shadow: 0 0 0 2px rgba(2, 6, 23, 0.9);
+    }
+
+    .range-sub {
+      font-size: 0.68rem;
+      color: #9ca3af;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      background: rgba(15, 23, 42, 1);
+      border: 1px solid rgba(75, 85, 99, 0.9);
+      color: #9ca3af;
+    }
+
+    .badge-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: #22c55e;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 3px 9px;
+      font-size: 0.7rem;
+      border: 1px solid rgba(148, 163, 184, 0.5);
+      color: #9ca3af;
+      gap: 6px;
+    }
+
+    .pill-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 999px;
+      background: #38bdf8;
+    }
+
+    .pill-dot.secondary {
+      background: #a855f7;
+    }
+
+    .pill-dot.tertiary {
+      background: #f97316;
+    }
+
+    .pill+.pill {
+      margin-left: 6px;
+    }
+
+    .pill-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 4px;
+    }
+
+    .table-toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin-top: 0.25rem;
+      margin-bottom: 0.25rem;
+      font-size: 0.8rem;
+      color: #9ca3af;
+    }
+
+    .sort-indicator {
+      font-size: 0.7rem;
+      opacity: 0.8;
+      margin-left: 4px;
+    }
+
+    .th-clickable {
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .portfolio-card {
+      background: linear-gradient(135deg, rgba(34, 197, 94, 0.1), rgba(56, 189, 248, 0.1));
+      border: 1px solid rgba(34, 197, 94, 0.3);
+      border-radius: 16px;
+      padding: 24px 28px;
+      margin-bottom: 24px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 40px;
+      align-items: center;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+    }
+
+    .portfolio-title {
+      font-weight: 700;
+      font-size: 1.1rem;
+      color: #22c55e;
+      margin-bottom: 4px;
+    }
+
+    .portfolio-stats-group {
+      display: flex;
+      gap: 36px;
+      flex-grow: 1;
+      flex-wrap: wrap;
+    }
+
+    .portfolio-stat {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .portfolio-stat-label {
+      font-size: 0.72rem;
+      color: #9ca3af;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+    }
+
+    .portfolio-stat-value {
+      font-size: 1.4rem;
+      font-weight: 700;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 24px;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.25);
+      padding-bottom: 8px;
+    }
+    .tab {
+      cursor: pointer;
+      padding: 8px 16px;
+      color: #9ca3af;
+      font-weight: 600;
+      border-radius: 8px;
+      transition: all 0.2s ease;
+    }
+    .tab.active {
+      color: #e5e7eb;
+      background: rgba(34, 197, 94, 0.1);
+      border: 1px solid rgba(34, 197, 94, 0.3);
+    }
+    .tab:hover:not(.active) {
+      background: rgba(148, 163, 184, 0.1);
+    }
+
+    /* ── Tablet (≤ 1024px) ─────────────────────────────────────────── */
+    @media (max-width: 1024px) {
+      body { padding: 20px; }
+
+      h1 { font-size: 1.5rem; }
+
+      .portfolio-card {
+        gap: 28px;
+        padding: 20px 22px;
       }
 
-      .app-shell {
-        max-width: 1200px;
-        margin: 0 auto;
-      }
+      .portfolio-stats-group { gap: 28px; }
 
-      .card {
-        background: radial-gradient(circle at top left, #1f2937, #020617);
-        border-radius: 16px;
-        padding: 20px 24px;
-        box-shadow: 0 24px 80px rgba(15, 23, 42, 0.9);
-        border: 1px solid rgba(148, 163, 184, 0.25);
-      }
+      .portfolio-stat-value { font-size: 1.2rem; }
 
-      h1 {
-        font-size: 1.8rem;
-        margin-bottom: 0.25rem;
-      }
+      .badge { display: none; }        /* hide badge on smaller screens */
+    }
 
-      h2 {
-        font-size: 1.1rem;
-        margin-top: 1.5rem;
-        margin-bottom: 0.5rem;
-        color: #9ca3af;
-      }
+    /* ── Mobile (≤ 768px) ──────────────────────────────────────────── */
+    @media (max-width: 768px) {
+      body { padding: 12px; }
 
-      .subheading {
-        color: #9ca3af;
-        margin-bottom: 1.25rem;
-      }
+      .card { padding: 16px 14px; }
+
+      h1 { font-size: 1.3rem; }
+
+      .subheading { font-size: 0.85rem; }
 
       .controls {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 16px;
-        align-items: center;
-        margin-bottom: 1rem;
-      }
-
-      .field {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-        font-size: 0.9rem;
-      }
-
-      .field label {
-        color: #9ca3af;
-      }
-
-      .field input[type="date"] {
-        padding: 6px 10px;
-        border-radius: 8px;
-        border: 1px solid #4b5563;
-        background: #020617;
-        color: #e5e7eb;
-      }
-
-      .toggle {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        cursor: pointer;
-      }
-
-      .toggle input {
-        display: none;
-      }
-
-      .toggle-pill {
-        width: 38px;
-        height: 20px;
-        border-radius: 999px;
-        background: #374151;
-        position: relative;
-        transition: background 0.18s ease;
-      }
-
-      .toggle-pill-knob {
-        position: absolute;
-        top: 2px;
-        left: 2px;
-        width: 16px;
-        height: 16px;
-        border-radius: 999px;
-        background: #e5e7eb;
-        transition: transform 0.18s ease;
-      }
-
-      .toggle input:checked + .toggle-pill {
-        background: #22c55e;
-      }
-
-      .toggle input:checked + .toggle-pill .toggle-pill-knob {
-        transform: translateX(18px);
-      }
-
-      button.primary {
-        border-radius: 999px;
-        background: linear-gradient(135deg, #22c55e, #16a34a);
-        color: #020617;
-        padding: 8px 18px;
-        border: none;
-        font-weight: 600;
-        cursor: pointer;
-        font-size: 0.9rem;
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        box-shadow: 0 12px 30px rgba(34, 197, 94, 0.35);
-      }
-
-      button.primary:disabled {
-        opacity: 0.5;
-        cursor: default;
-        box-shadow: none;
-      }
-
-      .status {
-        font-size: 0.85rem;
-        color: #9ca3af;
-        min-height: 20px;
-        margin-bottom: 0.5rem;
-      }
-
-      table {
-        width: 100%;
-        border-collapse: collapse;
-        margin-top: 0.5rem;
-        font-size: 0.85rem;
-      }
-
-      th,
-      td {
-        padding: 8px 10px;
-        text-align: right;
-        border-bottom: 1px solid rgba(31, 41, 55, 0.9);
-      }
-
-      th:first-child,
-      td:first-child {
-        text-align: left;
-      }
-
-      th:nth-child(2),
-      td:nth-child(2) {
-        text-align: right;
-      }
-
-      thead {
-        background: rgba(15, 23, 42, 0.95);
-        position: sticky;
-        top: 0;
-        z-index: 1;
-      }
-
-      tbody tr:nth-child(even) {
-        background: rgba(15, 23, 42, 0.6);
-      }
-
-      tbody tr:hover {
-        background: rgba(31, 41, 55, 0.95);
-      }
-
-      .returns-container {
-        max-height: 550px;
-        overflow: auto;
-        border-radius: 12px;
-        border: 1px solid rgba(55, 65, 81, 0.9);
-        margin-top: 0.5rem;
-      }
-
-      .stock-meta {
-        min-width: 140px;
-      }
-
-      .range-wrap {
-        display: flex;
-        flex-direction: column;
-        align-items: flex-end;
-        gap: 5px;
-        min-width: 150px;
-      }
-
-      .range-price {
-        font-variant-numeric: tabular-nums;
-        font-weight: 700;
-        color: #22c55e;
-        font-size: 0.92em;
-      }
-
-      .range-bar-row {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        width: 100%;
-      }
-
-      .range-label {
-        font-size: 0.7rem;
-        color: #9ca3af;
-        width: 14px;
-        text-align: center;
-      }
-
-      .range-bar {
-        position: relative;
-        height: 5px;
-        border-radius: 999px;
-        background: rgba(148, 163, 184, 0.18);
-        border: 1px solid rgba(148, 163, 184, 0.22);
-        flex: 1;
-        overflow: hidden;
-      }
-
-      .range-fill {
-        position: absolute;
-        left: 0;
-        top: 0;
-        bottom: 0;
-        background: linear-gradient(90deg, rgba(56, 189, 248, 0.35), rgba(168, 85, 247, 0.28));
-      }
-
-      .range-marker {
-        position: absolute;
-        top: 50%;
-        width: 4px;
-        height: 12px;
-        border-radius: 3px;
-        background: #e5e7eb;
-        transform: translate(-50%, -50%);
-        box-shadow: 0 0 0 2px rgba(2, 6, 23, 0.9);
-      }
-
-      .range-sub {
-        font-size: 0.68rem;
-        color: #9ca3af;
-        font-variant-numeric: tabular-nums;
-      }
-
-      .badge {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        padding: 4px 10px;
-        border-radius: 999px;
-        font-size: 0.75rem;
-        background: rgba(15, 23, 42, 1);
-        border: 1px solid rgba(75, 85, 99, 0.9);
-        color: #9ca3af;
-      }
-
-      .badge-dot {
-        width: 8px;
-        height: 8px;
-        border-radius: 999px;
-        background: #22c55e;
-      }
-
-      .pill {
-        display: inline-flex;
-        align-items: center;
-        border-radius: 999px;
-        padding: 3px 9px;
-        font-size: 0.7rem;
-        border: 1px solid rgba(148, 163, 184, 0.5);
-        color: #9ca3af;
-        gap: 6px;
-      }
-
-      .pill-dot {
-        width: 7px;
-        height: 7px;
-        border-radius: 999px;
-        background: #38bdf8;
-      }
-
-      .pill-dot.secondary {
-        background: #a855f7;
-      }
-
-      .pill-dot.tertiary {
-        background: #f97316;
-      }
-
-      .pill + .pill {
-        margin-left: 6px;
-      }
-
-      .pill-row {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 6px;
-        margin-top: 4px;
-      }
-
-      .table-toolbar {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
+        align-items: flex-start;
         gap: 12px;
-        margin-top: 0.25rem;
-        margin-bottom: 0.25rem;
-        font-size: 0.8rem;
-        color: #9ca3af;
       }
 
-      .sort-indicator {
-        font-size: 0.7rem;
-        opacity: 0.8;
-        margin-left: 4px;
+      .portfolio-card {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 20px;
+        padding: 18px 16px;
       }
 
-      .th-clickable {
-        cursor: pointer;
-        user-select: none;
+      .portfolio-stats-group {
+        width: 100%;
+        gap: 20px;
       }
 
-      @media (max-width: 768px) {
-        body {
-          padding: 16px;
-        }
-        .card {
-          padding: 16px;
-        }
-        .controls {
-          align-items: flex-start;
-        }
-        table {
-          font-size: 0.8rem;
-        }
-        th,
-        td {
-          padding: 6px 8px;
-        }
-      }
-    </style>
-  </head>
-  <body>
-    <div id="root"></div>
+      .portfolio-stat-value { font-size: 1.15rem; }
 
-    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
-    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-    <script>
-      const { useState, useEffect } = React;
+      .tabs { gap: 10px; }
+      .tab  { padding: 6px 12px; font-size: 0.85rem; }
 
-      const BACKEND_BASE_URL =
-        window.location.hostname === "localhost" ||
-        window.location.hostname === "127.0.0.1"
-          ? "http://127.0.0.1:8000"
-          : "https://nifty-50-fi1v.onrender.com";
+      .pill-row { gap: 4px; }
+      .pill     { font-size: 0.65rem; padding: 2px 7px; }
 
-      // const BACKEND_BASE_URL = "http://127.0.0.1:8000";
+      table { font-size: 0.78rem; }
 
-      function formatPct(v) {
-        if (v === null || v === undefined || Number.isNaN(v)) return "—";
-        const pct = v * 100;
-        return pct.toFixed(1) + "%";
-      }
+      th, td { padding: 6px 7px; }
 
-      function formatInr(v) {
-        if (v === null || v === undefined || Number.isNaN(v)) return "—";
-        return "₹" + Number(v).toFixed(2);
-      }
+      /* hide 52W column on narrow screens to save space */
+      th:nth-child(2), td:nth-child(2) { display: none; }
 
-      function clamp01(x) {
-        if (x === null || x === undefined || Number.isNaN(x)) return 0;
-        return Math.min(1, Math.max(0, x));
-      }
+      .returns-container { max-height: 420px; }
 
-      function NiftyApp() {
-        const [asOf, setAsOf] = useState(() => {
-          const today = new Date();
-          return today.toISOString().slice(0, 10);
+      .table-toolbar { flex-direction: column; align-items: flex-start; gap: 8px; }
+    }
+
+    /* ── Small phones (≤ 480px) ────────────────────────────────────── */
+    @media (max-width: 480px) {
+      body { padding: 8px; }
+
+      .card { padding: 12px 10px; border-radius: 12px; }
+
+      h1 { font-size: 1.15rem; }
+
+      button.primary { padding: 7px 13px; font-size: 0.8rem; }
+
+      .portfolio-stat-value { font-size: 1rem; }
+    }
+  </style>
+</head>
+
+<body>
+  <div id="root"></div>
+
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script>
+    const { useState, useEffect } = React;
+
+    const BACKEND_BASE_URL =
+      window.location.hostname === "localhost" ||
+      window.location.hostname === "127.0.0.1"
+        ? "http://127.0.0.1:8000"
+        : "https://nifty-50-fi1v.onrender.com";
+
+    // const BACKEND_BASE_URL = "http://127.0.0.1:8000";
+
+    function formatPct(v) {
+      if (v === null || v === undefined || Number.isNaN(v)) return "—";
+      const pct = v * 100;
+      return pct.toFixed(1) + "%";
+    }
+
+    function formatInr(v) {
+      if (v === null || v === undefined || Number.isNaN(v)) return "—";
+      return "₹" + Number(v).toFixed(2);
+    }
+
+    function clamp01(x) {
+      if (x === null || x === undefined || Number.isNaN(x)) return 0;
+      return Math.min(1, Math.max(0, x));
+    }
+
+    function NiftyApp() {
+      const [asOf, setAsOf] = useState(() => {
+        const today = new Date();
+        return today.toISOString().slice(0, 10);
+      });
+      const [includeDividends, setIncludeDividends] = useState(false);
+      const [activeTab, setActiveTab] = useState("nifty50");
+      
+      const [niftyLoading, setNiftyLoading] = useState(false);
+      const [niftyError, setNiftyError] = useState("");
+      const [niftyData, setNiftyData] = useState(null);
+
+      const [aiLoading, setAiLoading] = useState(false);
+      const [aiError, setAiError] = useState("");
+      const [aiData, setAiData] = useState(null);
+
+      const [sortConfig, setSortConfig] = useState({
+        key: "five_year",
+        direction: "desc",
+      });
+      const [searchQuery, setSearchQuery] = useState("");
+
+      // ─── Shared HTTP helper ───────────────────────────────────────────
+      async function _callReturnsApi(payload) {
+        const res = await fetch(`${BACKEND_BASE_URL}/api/returns`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
         });
-        const [includeDividends, setIncludeDividends] = useState(false);
-        const [loading, setLoading] = useState(false);
-        const [error, setError] = useState("");
-        const [data, setData] = useState(null);
-        const [sortConfig, setSortConfig] = useState({
-          key: "five_year",
-          direction: "desc",
-        });
-
-        async function fetchReturns() {
-          setLoading(true);
-          setError("");
-          try {
-            const res = await fetch(`${BACKEND_BASE_URL}/api/returns`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                as_of_date: asOf,
-                include_dividends: includeDividends,
-              }),
-            });
-            if (!res.ok) {
-              const text = await res.text();
-              throw new Error(text || "Request failed");
-            }
-            const json = await res.json();
-            setData(json);
-          } catch (e) {
-            console.error(e);
-            setError(
-              "Could not load data. Ensure backend (FastAPI) is running on port 8000."
-            );
-          } finally {
-            setLoading(false);
-          }
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text || "Request failed");
         }
+        return await res.json();
+      }
 
-        useEffect(() => {
-          fetchReturns();
-        }, []);
-
-        function sortedStocks() {
-          if (!data || !data.stocks) return [];
-          const stocks = [...data.stocks];
-          const { key, direction } = sortConfig || {};
-          if (!key) return stocks;
-          stocks.sort((a, b) => {
-            if (key === "symbol") {
-              const va = (a.symbol || "").toUpperCase();
-              const vb = (b.symbol || "").toUpperCase();
-              if (va === vb) return 0;
-              if (direction === "asc") return va < vb ? -1 : 1;
-              return va > vb ? -1 : 1;
-            } else {
-              const va = a[key] ?? -Infinity;
-              const vb = b[key] ?? -Infinity;
-              if (va === vb) return 0;
-              if (direction === "asc") return va < vb ? -1 : 1;
-              return va > vb ? -1 : 1;
-            }
+      // ─── Nifty 50 tab fetcher ─────────────────────────────────────────
+      async function fetchNiftyReturns() {
+        setNiftyLoading(true);
+        setNiftyError("");
+        try {
+          const json = await _callReturnsApi({
+            as_of_date: asOf,
+            include_dividends: includeDividends,
+            // no search_query → backend returns Nifty 50 default
           });
-          return stocks;
+          setNiftyData(json);
+        } catch (e) {
+          console.error(e);
+          setNiftyError("Could not load Nifty 50 data. Ensure backend is running.");
+        } finally {
+          setNiftyLoading(false);
         }
+      }
 
-        function handleHeaderClick(key) {
-          setSortConfig((prev) => {
-            if (!prev || prev.key !== key) {
-              return { key, direction: "desc" };
-            }
-            if (prev.direction === "desc") {
-              return { key, direction: "asc" };
-            }
-            if (prev.direction === "asc") {
-              return { key: null, direction: "desc" };
-            }
+      // ─── AI Stock Master tab fetcher ──────────────────────────────────
+      async function fetchAiReturns() {
+        if (!searchQuery || searchQuery.trim() === "") return; // nothing to fetch
+        setAiLoading(true);
+        setAiError("");
+        try {
+          const json = await _callReturnsApi({
+            as_of_date: asOf,
+            include_dividends: includeDividends,
+            search_query: searchQuery.trim(), // always driven by searchQuery
+          });
+          setAiData(json);
+        } catch (e) {
+          console.error(e);
+          setAiError("AI search failed. Please try a different query.");
+        } finally {
+          setAiLoading(false);
+        }
+      }
+
+      useEffect(() => {
+        fetchNiftyReturns();
+      }, []);
+
+      // Derived: point to the right state based on which tab is active
+      const currentData    = activeTab === "search" ? aiData    : niftyData;
+      const currentLoading = activeTab === "search" ? aiLoading : niftyLoading;
+      const currentError   = activeTab === "search" ? aiError   : niftyError;
+
+      const getEffectiveReturn = (item, key) => {
+        if (!item || item[key] == null) return null;
+        return item[key] + (includeDividends ? (item[`${key}_dividend`] || 0) : 0);
+      };
+
+      function sortedStocks() {
+        if (!currentData || !currentData.stocks) return [];
+        const stocks = [...currentData.stocks];
+        const { key, direction } = sortConfig || {};
+        if (!key) return stocks;
+        stocks.sort((a, b) => {
+          if (key === "symbol") {
+            const va = (a.symbol || "").toUpperCase();
+            const vb = (b.symbol || "").toUpperCase();
+            if (va === vb) return 0;
+            if (direction === "asc") return va < vb ? -1 : 1;
+            return va > vb ? -1 : 1;
+          } else {
+            const isComboKey = key === "one_year" || key === "three_year" || key === "five_year";
+            const va = isComboKey ? (getEffectiveReturn(a, key) ?? -Infinity) : (a[key] ?? -Infinity);
+            const vb = isComboKey ? (getEffectiveReturn(b, key) ?? -Infinity) : (b[key] ?? -Infinity);
+            if (va === vb) return 0;
+            if (direction === "asc") return va < vb ? -1 : 1;
+            return va > vb ? -1 : 1;
+          }
+        });
+        return stocks;
+      }
+
+      function handleHeaderClick(key) {
+        setSortConfig((prev) => {
+          if (!prev || prev.key !== key) {
             return { key, direction: "desc" };
-          });
-        }
-
-        function sortLabel(key, label) {
-          if (!sortConfig || sortConfig.key !== key || !sortConfig.key) {
-            return label;
           }
-          const arrow = sortConfig.direction === "asc" ? "▲" : "▼";
-          return (
-            label +
-            " " +
-            String.fromCharCode(160) +
-            String.fromCharCode(160) +
-            arrow
-          );
-        }
+          if (prev.direction === "desc") {
+            return { key, direction: "asc" };
+          }
+          if (prev.direction === "asc") {
+            return { key: null, direction: "desc" };
+          }
+          return { key, direction: "desc" };
+        });
+      }
 
-        function exportCsv() {
-          if (!data || !data.stocks) return;
-          const rows = [];
-          rows.push([
-            "Symbol",
-            "Name",
-            "1Y Return",
-            "3Y Return",
-            "5Y Return",
-            "1Y Dividend",
-            "3Y Dividend",
-            "5Y Dividend",
-            "AsOf",
-            "IncludeDividends",
-          ]);
-          sortedStocks().forEach((s) => {
-            rows.push([
-              s.symbol,
-              s.name || "",
-              s.one_year ?? "",
-              s.three_year ?? "",
-              s.five_year ?? "",
-              s.one_year_dividend ?? "",
-              s.three_year_dividend ?? "",
-              s.five_year_dividend ?? "",
-              data.as_of_date,
-              data.include_dividends ? "1" : "0",
-            ]);
-          });
-          const csv = rows
-            .map((row) =>
-              row
-                .map((v) => {
-                  const val = v === null || v === undefined ? "" : String(v);
-                  if (val.includes(",") || val.includes('"')) {
-                    return `"${val.replace(/"/g, '""')}"`;
-                  }
-                  return val;
-                })
-                .join(",")
-            )
-            .join("\n");
-          const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement("a");
-          const suffix = includeDividends ? "with-dividends" : "price-only";
-          a.href = url;
-          a.download = `nifty50-returns-${data.as_of_date}-${suffix}.csv`;
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          URL.revokeObjectURL(url);
+      function sortLabel(key, label) {
+        if (!sortConfig || sortConfig.key !== key || !sortConfig.key) {
+          return label;
         }
-
-        return React.createElement(
-          "div",
-          { className: "app-shell" },
-          React.createElement(
-            "div",
-            { className: "card" },
-            React.createElement(
-              "div",
-              null,
-              React.createElement(
-                "div",
-                { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 } },
-                React.createElement(
-                  "div",
-                  null,
-                  React.createElement("h1", null, "Nifty 50 Return Tracker"),
-                  React.createElement(
-                    "div",
-                    { className: "subheading" },
-                    "Exact 1 / 3 / 5 year returns as of a chosen date, with splits/bonus handled and optional dividends."
-                  )
-                ),
-                React.createElement(
-                  "div",
-                  { className: "badge" },
-                  React.createElement("span", { className: "badge-dot" }),
-                  "Live data via Yahoo Finance (adjusted for splits; dividends toggle)"
-                )
-              ),
-              React.createElement(
-                "div",
-                { className: "pill-row" },
-                React.createElement(
-                  "div",
-                  { className: "pill" },
-                  React.createElement("span", { className: "pill-dot" }),
-                  "Price return with splits/bonus"
-                ),
-                React.createElement(
-                  "div",
-                  { className: "pill" },
-                  React.createElement("span", { className: "pill-dot secondary" }),
-                  "Optional dividend cashflows"
-                ),
-                React.createElement(
-                  "div",
-                  { className: "pill" },
-                  React.createElement("span", { className: "pill-dot tertiary" }),
-                  "Exact lookback from selected date"
-                )
-              )
-            ),
-            React.createElement(
-              "div",
-              { className: "controls" },
-              React.createElement(
-                "div",
-                { className: "field" },
-                React.createElement("label", null, "As-of date"),
-                React.createElement("input", {
-                  type: "date",
-                  value: asOf,
-                  max: new Date().toISOString().slice(0, 10),
-                  onChange: (e) => setAsOf(e.target.value),
-                })
-              ),
-              React.createElement(
-                "label",
-                { className: "toggle" },
-                React.createElement("input", {
-                  type: "checkbox",
-                  checked: includeDividends,
-                  onChange: (e) => setIncludeDividends(e.target.checked),
-                }),
-                React.createElement(
-                  "span",
-                  { className: "toggle-pill" },
-                  React.createElement("span", { className: "toggle-pill-knob" })
-                ),
-                React.createElement(
-                  "span",
-                  null,
-                  includeDividends ? "Include dividends" : "Exclude dividends"
-                )
-              ),
-              React.createElement(
-                "button",
-                {
-                  className: "primary",
-                  onClick: fetchReturns,
-                  disabled: loading,
-                },
-                loading ? "Refreshing…" : "Refresh returns"
-              )
-            ),
-            React.createElement(
-              "div",
-              { className: "status" },
-              error
-                ? error
-                : data
-                ? `As of ${data.as_of_date} · Showing ${
-                    data.stocks?.length || 0
-                  } stocks · Dividends ${
-                    data.include_dividends ? "included" : "excluded"
-                  }.`
-                : "Loading..."
-            ),
-            React.createElement(
-              "div",
-              { className: "table-toolbar" },
-              React.createElement(
-                "span",
-                null,
-                sortConfig && sortConfig.key
-                  ? `Sorted by ${
-                      sortConfig.key === "symbol"
-                        ? "Stock"
-                        : sortConfig.key === "one_year"
-                        ? "1Y"
-                        : sortConfig.key === "three_year"
-                        ? "3Y"
-                        : sortConfig.key === "five_year"
-                        ? "5Y"
-                        : sortConfig.key === "one_year_dividend"
-                        ? "1Y Div"
-                        : sortConfig.key === "three_year_dividend"
-                        ? "3Y Div"
-                        : sortConfig.key === "five_year_dividend"
-                        ? "5Y Div"
-                        : "Custom"
-                    } (${sortConfig.direction === "asc" ? "low → high" : "high → low"})`
-                  : "No sorting applied"
-              ),
-              React.createElement(
-                "button",
-                {
-                  className: "primary",
-                  onClick: exportCsv,
-                  disabled: !data || !data.stocks || loading,
-                },
-                "Export CSV"
-              )
-            ),
-            React.createElement(
-              "div",
-              { className: "returns-container" },
-              data &&
-                React.createElement(
-                  "table",
-                  null,
-                  React.createElement(
-                    "thead",
-                    null,
-                    React.createElement(
-                      "tr",
-                      null,
-                      React.createElement(
-                        "th",
-                        {
-                          className: "th-clickable",
-                          onClick: () => handleHeaderClick("symbol"),
-                        },
-                        sortLabel("symbol", "Stock")
-                      ),
-                      React.createElement("th", null, "52W Perf"),
-                      React.createElement(
-                        "th",
-                        {
-                          className: "th-clickable",
-                          onClick: () => handleHeaderClick("one_year"),
-                        },
-                        sortLabel("one_year", "1Y")
-                      ),
-                      React.createElement(
-                        "th",
-                        {
-                          className: "th-clickable",
-                          onClick: () => handleHeaderClick("three_year"),
-                        },
-                        sortLabel("three_year", "3Y")
-                      ),
-                      React.createElement(
-                        "th",
-                        {
-                          className: "th-clickable",
-                          onClick: () => handleHeaderClick("five_year"),
-                        },
-                        sortLabel("five_year", "5Y")
-                      ),
-                      data && data.include_dividends
-                        ? React.createElement(
-                            "th",
-                            {
-                              className: "th-clickable",
-                              onClick: () => handleHeaderClick("one_year_dividend"),
-                            },
-                            sortLabel("one_year_dividend", "1Y Div")
-                          )
-                        : null,
-                      data && data.include_dividends
-                        ? React.createElement(
-                            "th",
-                            {
-                              className: "th-clickable",
-                              onClick: () => handleHeaderClick("three_year_dividend"),
-                            },
-                            sortLabel("three_year_dividend", "3Y Div")
-                          )
-                        : null,
-                      data && data.include_dividends
-                        ? React.createElement(
-                            "th",
-                            {
-                              className: "th-clickable",
-                              onClick: () => handleHeaderClick("five_year_dividend"),
-                            },
-                            sortLabel("five_year_dividend", "5Y Div")
-                          )
-                        : null
-                    )
-                  ),
-                  React.createElement(
-                    "tbody",
-                    null,
-                    sortedStocks().map((s) =>
-                      React.createElement(
-                        "tr",
-                        { key: s.symbol },
-                        React.createElement(
-                          "td",
-                          null,
-                          React.createElement(
-                            "div",
-                            { className: "stock-meta" },
-                            React.createElement("div", null, s.symbol),
-                            s.name
-                              ? React.createElement(
-                                  "span",
-                                  {
-                                    style: {
-                                      display: "block",
-                                      fontSize: "0.7rem",
-                                      color: "#9ca3af",
-                                      marginTop: 2,
-                                    },
-                                  },
-                                  s.name
-                                )
-                              : null
-                          )
-                        ),
-                        React.createElement(
-                          "td",
-                          null,
-                          React.createElement(
-                            "div",
-                            { className: "range-wrap" },
-                            React.createElement(
-                              "div",
-                              { className: "range-price" },
-                              formatInr(s.price)
-                            ),
-                            React.createElement(
-                              "div",
-                              { className: "range-bar-row" },
-                              React.createElement(
-                                "span",
-                                { className: "range-label" },
-                                "L"
-                              ),
-                              React.createElement(
-                                "div",
-                                { className: "range-bar" },
-                                (() => {
-                                  const low = s.week52_low;
-                                  const high = s.week52_high;
-                                  const price = s.price;
-                                  const denom =
-                                    high !== null &&
-                                    high !== undefined &&
-                                    low !== null &&
-                                    low !== undefined
-                                      ? high - low
-                                      : 0;
-                                  const pos =
-                                    denom > 0 && price !== null && price !== undefined
-                                      ? clamp01((price - low) / denom)
-                                      : null;
-                                  const widthPct =
-                                    pos === null ? "0%" : (pos * 100).toFixed(2) + "%";
-                                  const markerLeft =
-                                    pos === null ? "0%" : (pos * 100).toFixed(2) + "%";
-                                  return React.createElement(
-                                    React.Fragment,
-                                    null,
-                                    React.createElement("div", {
-                                      className: "range-fill",
-                                      style: { width: widthPct },
-                                    }),
-                                    pos !== null
-                                      ? React.createElement("div", {
-                                          className: "range-marker",
-                                          style: { left: markerLeft },
-                                        })
-                                      : null
-                                  );
-                                })()
-                              ),
-                              React.createElement(
-                                "span",
-                                { className: "range-label" },
-                                "H"
-                              )
-                            ),
-                            React.createElement(
-                              "div",
-                              { className: "range-sub" },
-                              s.week52_low != null && s.week52_high != null
-                                ? `52W: ${formatInr(s.week52_low)} – ${formatInr(
-                                    s.week52_high
-                                  )}`
-                                : "52W: —"
-                            )
-                          )
-                        ),
-                        React.createElement(
-                          "td",
-                          { style: { color: (s.one_year ?? 0) >= 0 ? "#22c55e" : "#ef4444" } },
-                          formatPct(s.one_year)
-                        ),
-                        React.createElement(
-                          "td",
-                          { style: { color: (s.three_year ?? 0) >= 0 ? "#22c55e" : "#ef4444" } },
-                          formatPct(s.three_year)
-                        ),
-                        React.createElement(
-                          "td",
-                          { style: { color: (s.five_year ?? 0) >= 0 ? "#22c55e" : "#ef4444" } },
-                          formatPct(s.five_year)
-                        ),
-                        data && data.include_dividends
-                          ? React.createElement(
-                              "td",
-                              { style: { color: "#38bdf8" } },
-                              formatPct(s.one_year_dividend)
-                            )
-                          : null,
-                        data && data.include_dividends
-                          ? React.createElement(
-                              "td",
-                              { style: { color: "#38bdf8" } },
-                              formatPct(s.three_year_dividend)
-                            )
-                          : null,
-                        data && data.include_dividends
-                          ? React.createElement(
-                              "td",
-                              { style: { color: "#38bdf8" } },
-                              formatPct(s.five_year_dividend)
-                            )
-                          : null
-                      )
-                    )
-                  )
-                )
-            )
-          )
+        const arrow = sortConfig.direction === "asc" ? "▲" : "▼";
+        return (
+          label +
+          " " +
+          String.fromCharCode(160) +
+          String.fromCharCode(160) +
+          arrow
         );
       }
 
-      const root = ReactDOM.createRoot(document.getElementById("root"));
-      root.render(React.createElement(NiftyApp));
-    </script>
-  </body>
-  </html>
+      function exportCsv() {
+        if (!currentData || !currentData.stocks) return;
+        const rows = [];
+        rows.push([
+          "Symbol",
+          "Name",
+          "1Y Return",
+          "3Y Return",
+          "5Y Return",
+          "1Y Dividend",
+          "3Y Dividend",
+          "5Y Dividend",
+          "AsOf",
+          "IncludeDividends",
+        ]);
+        sortedStocks().forEach((s) => {
+          rows.push([
+            s.symbol,
+            s.name || "",
+            getEffectiveReturn(s, "one_year") ?? "",
+            getEffectiveReturn(s, "three_year") ?? "",
+            getEffectiveReturn(s, "five_year") ?? "",
+            s.one_year_dividend ?? "",
+            s.three_year_dividend ?? "",
+            s.five_year_dividend ?? "",
+            currentData.as_of_date,
+            includeDividends ? "1" : "0",
+          ]);
+        });
+        const csv = rows
+          .map((row) =>
+            row
+              .map((v) => {
+                const val = v === null || v === undefined ? "" : String(v);
+                if (val.includes(",") || val.includes('"')) {
+                  return `"${val.replace(/"/g, '""')}"`;
+                }
+                return val;
+              })
+              .join(",")
+          )
+          .join("\n");
+        const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        const suffix = includeDividends ? "with-dividends" : "price-only";
+        a.href = url;
+        a.download = `nifty50-returns-${currentData.as_of_date}-${suffix}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
 
+      return React.createElement(
+        "div",
+        { className: "app-shell" },
+        React.createElement(
+          "div",
+          { className: "card" },
+          React.createElement(
+            "div",
+            { className: "tabs" },
+            React.createElement(
+              "div",
+              { 
+                className: `tab ${activeTab === 'nifty50' ? 'active' : ''}`, 
+                onClick: () => setActiveTab("nifty50") 
+              },
+              "Nifty 50"
+            ),
+            React.createElement(
+              "div",
+              { 
+                className: `tab ${activeTab === 'search' ? 'active' : ''}`, 
+                onClick: () => setActiveTab("search") 
+              },
+              "AI Stock Master"
+            )
+          ),
+          React.createElement(
+            "div",
+            null,
+            React.createElement(
+              "div",
+              { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 } },
+              React.createElement(
+                "div",
+                null,
+                React.createElement("h1", null, "Nifty 50 Return Tracker"),
+                React.createElement(
+                  "div",
+                  { className: "subheading" },
+                  "Exact 1 | 3 | 5 year returns as of a chosen date, with optional dividend adjusted cashflows."
+                )
+              ),
+              React.createElement(
+                "div",
+                { className: "badge" },
+                React.createElement("span", { className: "badge-dot" }),
+                "Live data via Yahoo Finance (adjusted for splits; dividends toggle)"
+              )
+            ),
+            React.createElement(
+              "div",
+              { className: "pill-row" },
+              React.createElement(
+                "div",
+                { className: "pill" },
+                React.createElement("span", { className: "pill-dot secondary" }),
+                "Price return with splits/bonus"
+              ),
+              React.createElement(
+                "div",
+                { className: "pill" },
+                React.createElement("span", { className: "pill-dot" }),
+                "Optional dividend cashflows"
+              ),
+              React.createElement(
+                "div",
+                { className: "pill" },
+                React.createElement("span", { className: "pill-dot tertiary" }),
+                "Exact lookback from selected date"
+              )
+            )
+          ),
+          activeTab === "search" ? React.createElement(
+            "div",
+            { style: { width: "100%", marginBottom: "16px", marginTop: "16px" } },
+            React.createElement(
+              "div",
+              { className: "field" },
+              React.createElement("label", null, "Search any Sector or Stock (AI powered)"),
+              React.createElement(
+                "div",
+                { style: { display: "flex", gap: "8px", marginTop: "4px" } },
+                React.createElement("input", {
+                  type: "text",
+                  value: searchQuery,
+                  placeholder: "e.g., IT Sector, Banking, Tata Motors...",
+                  style: { flex: 1, padding: "8px 12px", borderRadius: "8px", border: "1px solid #4b5563", background: "#020617", color: "#e5e7eb" },
+                  onChange: (e) => setSearchQuery(e.target.value),
+                  onKeyDown: (e) => {
+                    if (e.key === "Enter") fetchAiReturns();
+                  }
+                }),
+                searchQuery ? React.createElement(
+                  "button",
+                  {
+                    className: "primary",
+                    style: { background: "#4b5563", color: "#e5e7eb" },
+                    onClick: () => {
+                      setSearchQuery("");
+                      setAiData(null);
+                      setAiError("");
+                    }
+                  },
+                  "Clear"
+                ) : null
+              )
+            )
+          ) : null,
+          React.createElement(
+            "div",
+            { className: "controls" },
+            React.createElement(
+              "div",
+              { className: "field" },
+              React.createElement("label", null, "As-of date"),
+              React.createElement("input", {
+                type: "date",
+                value: asOf,
+                max: new Date().toISOString().slice(0, 10),
+                onChange: (e) => setAsOf(e.target.value),
+              })
+            ),
+            React.createElement(
+              "label",
+              { className: "toggle" },
+              React.createElement("input", {
+                type: "checkbox",
+                checked: includeDividends,
+                onChange: (e) => setIncludeDividends(e.target.checked),
+              }),
+              React.createElement(
+                "span",
+                { className: "toggle-pill" },
+                React.createElement("span", { className: "toggle-pill-knob" })
+              ),
+              React.createElement(
+                "span",
+                null,
+                includeDividends ? "Include dividends" : "Exclude dividends"
+              )
+            ),
+            React.createElement(
+              "button",
+              {
+                className: "primary",
+                onClick: () => activeTab === "search" ? fetchAiReturns() : fetchNiftyReturns(),
+                disabled: currentLoading,
+              },
+              currentLoading
+                ? (activeTab === "search" ? "AI Generating List..." : "Refreshing…")
+                : "Refresh returns"
+            )
+          ),
+          // data && data.portfolio && data.stocks?.length > 0 ? React.createElement(
+          activeTab === "nifty50" && currentData && currentData.portfolio && React.createElement(
+            "div",
+            { className: "portfolio-card" },
+            React.createElement(
+              "div",
+              { style: { display: "flex", flexDirection: "column", gap: 4, minWidth: 180 } },
+              React.createElement("div", { className: "portfolio-title" }, "Nifty 50 Index"),
+              React.createElement(
+                "div",
+                { style: { display: "flex", alignItems: "center", gap: 16 } },
+                React.createElement(
+                  "div",
+                  { style: { fontSize: "1.6rem", fontWeight: 700, color: "#e5e7eb", fontVariantNumeric: "tabular-nums", flexShrink: 0 } },
+                  currentData.portfolio?.price != null
+                    ? Number(currentData.portfolio.price).toLocaleString("en-IN", { maximumFractionDigits: 2 })
+                    : "—"
+                ),
+                (() => {
+                  const low = currentData.portfolio?.week52_low;
+                  const high = currentData.portfolio?.week52_high;
+                  const price = currentData.portfolio?.price;
+                  if (low == null || high == null) return null;
+                  const denom = high - low;
+                  const pos = denom > 0 && price != null ? clamp01((price - low) / denom) : null;
+                  return React.createElement(
+                    "div",
+                    { style: { display: "flex", flexDirection: "column", gap: 3, flex: 1, minWidth: 120 } },
+                    React.createElement(
+                      "div",
+                      { className: "range-bar-row" },
+                      React.createElement("span", { className: "range-label" }, "L"),
+                      React.createElement(
+                        "div",
+                        { className: "range-bar" },
+                        pos !== null && React.createElement("div", { className: "range-fill", style: { width: (pos * 100).toFixed(1) + "%" } }),
+                        pos !== null && React.createElement("div", { className: "range-marker", style: { left: (pos * 100).toFixed(1) + "%" } })
+                      ),
+                      React.createElement("span", { className: "range-label" }, "H")
+                    ),
+                    React.createElement(
+                      "div",
+                      { style: { fontSize: "0.68rem", color: "#9ca3af", textAlign: "center" } },
+                      `52W: ${Number(low).toLocaleString("en-IN", { maximumFractionDigits: 2 })} – ${Number(high).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`
+                    )
+                  );
+                })()
+              )
+            ),
+            React.createElement(
+              "div",
+              { className: "portfolio-stats-group" },
+              React.createElement(
+                "div",
+                { className: "portfolio-stat" },
+                React.createElement("div", { className: "portfolio-stat-label" }, "1Y Return"),
+                React.createElement("div", {
+                  className: "portfolio-stat-value",
+                  style: { color: (getEffectiveReturn(currentData.portfolio, "one_year") ?? 0) >= 0 ? "#22c55e" : "#ef4444" }
+                }, formatPct(getEffectiveReturn(currentData.portfolio, "one_year")))
+              ),
+              React.createElement(
+                "div",
+                { className: "portfolio-stat" },
+                React.createElement("div", { className: "portfolio-stat-label" }, "3Y Return"),
+                React.createElement("div", {
+                  className: "portfolio-stat-value",
+                  style: { color: (getEffectiveReturn(currentData.portfolio, "three_year") ?? 0) >= 0 ? "#22c55e" : "#ef4444" }
+                }, formatPct(getEffectiveReturn(currentData.portfolio, "three_year")))
+              ),
+              React.createElement(
+                "div",
+                { className: "portfolio-stat" },
+                React.createElement("div", { className: "portfolio-stat-label" }, "5Y Return"),
+                React.createElement("div", {
+                  className: "portfolio-stat-value",
+                  style: { color: (getEffectiveReturn(currentData.portfolio, "five_year") ?? 0) >= 0 ? "#22c55e" : "#ef4444" }
+                }, formatPct(getEffectiveReturn(currentData.portfolio, "five_year")))
+              )
+            )
+          ),
+          // : React.createElement("div", null, "No data available"),
+          React.createElement(
+            "div",
+            { className: "status" },
+            currentError
+              ? currentError
+              : currentData
+                ? `As of ${currentData.as_of_date} · Showing ${currentData.stocks?.length || 0
+                } stocks · Dividends ${includeDividends ? "included" : "excluded"
+                }.`
+                : "Loading..."
+          ),
+          React.createElement(
+            "div",
+            { className: "table-toolbar" },
+            React.createElement(
+              "span",
+              null,
+              sortConfig && sortConfig.key
+                ? `Sorted by ${sortConfig.key === "symbol"
+                  ? "Stock"
+                  : sortConfig.key === "one_year"
+                    ? "1Y"
+                    : sortConfig.key === "three_year"
+                      ? "3Y"
+                      : sortConfig.key === "five_year"
+                        ? "5Y"
+                        : sortConfig.key === "one_year_dividend"
+                          ? "1Y Div"
+                          : sortConfig.key === "three_year_dividend"
+                            ? "3Y Div"
+                            : sortConfig.key === "five_year_dividend"
+                              ? "5Y Div"
+                              : "Custom"
+                } (${sortConfig.direction === "asc" ? "low → high" : "high → low"})`
+                : "No sorting applied"
+            ),
+            React.createElement(
+              "button",
+              {
+                className: "primary",
+                onClick: exportCsv,
+                disabled: !currentData || !currentData.stocks || currentLoading,
+              },
+              "Export CSV"
+            )
+          ),
+          React.createElement(
+            "div",
+            { className: "returns-container" },
+            currentData &&
+            React.createElement(
+              "table",
+              null,
+              React.createElement(
+                "thead",
+                null,
+                React.createElement(
+                  "tr",
+                  null,
+                  React.createElement(
+                    "th",
+                    {
+                      className: "th-clickable",
+                      onClick: () => handleHeaderClick("symbol"),
+                    },
+                    sortLabel("symbol", "Stock")
+                  ),
+                  React.createElement("th", null, "52W Perf"),
+                  React.createElement(
+                    "th",
+                    {
+                      className: "th-clickable",
+                      onClick: () => handleHeaderClick("one_year"),
+                    },
+                    sortLabel("one_year", "1Y")
+                  ),
+                  React.createElement(
+                    "th",
+                    {
+                      className: "th-clickable",
+                      onClick: () => handleHeaderClick("three_year"),
+                    },
+                    sortLabel("three_year", "3Y")
+                  ),
+                  React.createElement(
+                    "th",
+                    {
+                      className: "th-clickable",
+                      onClick: () => handleHeaderClick("five_year"),
+                    },
+                    sortLabel("five_year", "5Y")
+                  ),
+                  currentData && includeDividends
+                    ? React.createElement(
+                      "th",
+                      {
+                        className: "th-clickable",
+                        onClick: () => handleHeaderClick("one_year_dividend"),
+                      },
+                      sortLabel("one_year_dividend", "1Y Div")
+                    )
+                    : null,
+                  currentData && includeDividends
+                    ? React.createElement(
+                      "th",
+                      {
+                        className: "th-clickable",
+                        onClick: () => handleHeaderClick("three_year_dividend"),
+                      },
+                      sortLabel("three_year_dividend", "3Y Div")
+                    )
+                    : null,
+                  currentData && includeDividends
+                    ? React.createElement(
+                      "th",
+                      {
+                        className: "th-clickable",
+                        onClick: () => handleHeaderClick("five_year_dividend"),
+                      },
+                      sortLabel("five_year_dividend", "5Y Div")
+                    )
+                    : null
+                )
+              ),
+              React.createElement(
+                "tbody",
+                null,
+                sortedStocks().map((s) =>
+                  React.createElement(
+                    "tr",
+                    { key: s.symbol },
+                    React.createElement(
+                      "td",
+                      null,
+                      React.createElement(
+                        "div",
+                        { className: "stock-meta" },
+                        React.createElement("div", null, s.symbol),
+                        s.name
+                          ? React.createElement(
+                            "span",
+                            {
+                              style: {
+                                display: "block",
+                                fontSize: "0.7rem",
+                                color: "#9ca3af",
+                                marginTop: 2,
+                              },
+                            },
+                            s.name
+                          )
+                          : null
+                      )
+                    ),
+                    React.createElement(
+                      "td",
+                      null,
+                      React.createElement(
+                        "div",
+                        { className: "range-wrap" },
+                        React.createElement(
+                          "div",
+                          { className: "range-price" },
+                          formatInr(s.price)
+                        ),
+                        React.createElement(
+                          "div",
+                          { className: "range-bar-row" },
+                          React.createElement(
+                            "span",
+                            { className: "range-label" },
+                            "L"
+                          ),
+                          React.createElement(
+                            "div",
+                            { className: "range-bar" },
+                            (() => {
+                              const low = s.week52_low;
+                              const high = s.week52_high;
+                              const price = s.price;
+                              const denom =
+                                high !== null &&
+                                  high !== undefined &&
+                                  low !== null &&
+                                  low !== undefined
+                                  ? high - low
+                                  : 0;
+                              const pos =
+                                denom > 0 && price !== null && price !== undefined
+                                  ? clamp01((price - low) / denom)
+                                  : null;
+                              const widthPct =
+                                pos === null ? "0%" : (pos * 100).toFixed(2) + "%";
+                              const markerLeft =
+                                pos === null ? "0%" : (pos * 100).toFixed(2) + "%";
+                              return React.createElement(
+                                React.Fragment,
+                                null,
+                                React.createElement("div", {
+                                  className: "range-fill",
+                                  style: { width: widthPct },
+                                }),
+                                pos !== null
+                                  ? React.createElement("div", {
+                                    className: "range-marker",
+                                    style: { left: markerLeft },
+                                  })
+                                  : null
+                              );
+                            })()
+                          ),
+                          React.createElement(
+                            "span",
+                            { className: "range-label" },
+                            "H"
+                          )
+                        ),
+                        React.createElement(
+                          "div",
+                          { className: "range-sub" },
+                          s.week52_low != null && s.week52_high != null
+                            ? `52W: ${formatInr(s.week52_low)} – ${formatInr(
+                              s.week52_high
+                            )}`
+                            : "52W: —"
+                        )
+                      )
+                    ),
+                    React.createElement(
+                      "td",
+                      { style: { color: (getEffectiveReturn(s, "one_year") ?? 0) >= 0 ? "#22c55e" : "#ef4444" } },
+                      formatPct(getEffectiveReturn(s, "one_year"))
+                    ),
+                    React.createElement(
+                      "td",
+                      { style: { color: (getEffectiveReturn(s, "three_year") ?? 0) >= 0 ? "#22c55e" : "#ef4444" } },
+                      formatPct(getEffectiveReturn(s, "three_year"))
+                    ),
+                    React.createElement(
+                      "td",
+                      { style: { color: (getEffectiveReturn(s, "five_year") ?? 0) >= 0 ? "#22c55e" : "#ef4444" } },
+                      formatPct(getEffectiveReturn(s, "five_year"))
+                    ),
+                    currentData && includeDividends
+                      ? React.createElement(
+                        "td",
+                        { style: { color: "#38bdf8" } },
+                        formatPct(s.one_year_dividend)
+                      )
+                      : null,
+                    currentData && includeDividends
+                      ? React.createElement(
+                        "td",
+                        { style: { color: "#38bdf8" } },
+                        formatPct(s.three_year_dividend)
+                      )
+                      : null,
+                    currentData && includeDividends
+                      ? React.createElement(
+                        "td",
+                        { style: { color: "#38bdf8" } },
+                        formatPct(s.five_year_dividend)
+                      )
+                      : null
+                  )
+                )
+              )
+            )
+          )
+        )
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById("root"));
+    root.render(React.createElement(NiftyApp));
+  </script>
+</body>
+
+</html>
