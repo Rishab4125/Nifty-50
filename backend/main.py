@@ -1,8 +1,5 @@
 from datetime import date, timedelta
 from typing import List, Optional, Dict
-import time
-import random
-import logging
 
 import pandas as pd
 import yfinance as yf
@@ -14,10 +11,9 @@ import os
 import json
 import math
 from dotenv import load_dotenv
-from cachetools import TTLCache
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+from google import genai
+from google.genai import types
 
 def _clean_float(val) -> Optional[float]:
     if val is None:
@@ -30,42 +26,21 @@ def _clean_float(val) -> Optional[float]:
     except Exception:
         return None
 
-from google import genai
-from google.genai import types
-
 load_dotenv()
 
-# ── Enhanced session to mimic real browser traffic ──────────────────────────
-_USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4_1) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Safari/605.1.15",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36 Edg/123.0.0.0",
-]
-
 session = requests.Session()
-session.headers.update({
-    "User-Agent": random.choice(_USER_AGENTS),
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Accept-Encoding": "gzip, deflate, br",
-    "Referer": "https://finance.yahoo.com/",
-    "DNT": "1",
-    "Connection": "keep-alive",
-    "Upgrade-Insecure-Requests": "1",
-    "Sec-Fetch-Dest": "document",
-    "Sec-Fetch-Mode": "navigate",
-    "Sec-Fetch-Site": "same-origin",
-    "Sec-Fetch-User": "?1",
-    "Cache-Control": "max-age=0",
-})
+session.headers.update({"User-Agent": "Mozilla/5.0 (compatible; Nifty50ReturnsBot/1.0)"})
+# session.headers.update({
+#     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+#     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+# })
+# session.headers.update({
+#         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+#         "Accept": "text/html,application/xhtml+xml",
+#         "Connection": "keep-alive"
+#     })
+yf.utils.requests = lambda : session
 
-# ── In-memory caches (2-hour TTL) ───────────────────────────────────────────
-# Cache for computed StockReturn objects: key = (symbol, as_of_date, include_dividends)
-_returns_cache: TTLCache = TTLCache(maxsize=2048, ttl=2 * 60 * 60)  # 2 hours
-# Cache for raw price DataFrames: key = (ticker, start_date, end_date)
-_history_cache: TTLCache = TTLCache(maxsize=512, ttl=2 * 60 * 60)   # 2 hours
 
 class StockReturn(BaseModel):
     symbol: str
@@ -79,7 +54,7 @@ class StockReturn(BaseModel):
     price: Optional[float] = None
     week52_low: Optional[float] = None
     week52_high: Optional[float] = None
-
+    
 
 class ReturnsResponse(BaseModel):
     as_of_date: date
@@ -182,62 +157,23 @@ def _years_ago(as_of: date, years: int) -> date:
         return as_of.replace(month=2, day=28, year=as_of.year - years)
 
 
-def _get_history(ticker: str, start: date, end: date, _retry_count: int = 3) -> pd.DataFrame:
+def _get_history(ticker: str, start: date, end: date) -> pd.DataFrame:
     """
-    Download raw price history for a ticker with caching and retry logic.
-    Retries up to `_retry_count` times with exponential backoff on failure.
+    Download raw price history for a ticker, in the same spirit as test_yfinance.py.
     """
-    # ── Check history cache first ────────────────────────────────────────
-    cache_key = (ticker, str(start), str(end))
-    cached = _history_cache.get(cache_key)
-    if cached is not None:
-        logger.info(f"  [CACHE HIT] history for {ticker}")
-        return cached
-
-    # ── Fetch with retry + exponential backoff ───────────────────────────
-    last_error = None
-    for attempt in range(1, _retry_count + 1):
-        try:
-            # Rotate User-Agent on each attempt
-            session.headers["User-Agent"] = random.choice(_USER_AGENTS)
-
-            yf_ticker = yf.Ticker(ticker, session=session)
-            df = yf_ticker.history(
-                start=start, end=end + timedelta(days=1), auto_adjust=False
-            )
-            if df.empty:
-                logger.warning(f"  [EMPTY] yfinance returned no data for {ticker} (attempt {attempt})")
-                # Don't retry on empty — ticker may just have no data
-                _history_cache[cache_key] = df
-                return df
-
-            # Normalise index
-            df.index = pd.to_datetime(df.index)
-            try:
-                df.index = df.index.tz_localize(None)
-            except (TypeError, AttributeError):
-                pass
-
-            # Cache and return
-            _history_cache[cache_key] = df
-            logger.info(f"  [FETCHED] {ticker}: {len(df)} rows (attempt {attempt})")
-            return df
-
-        except Exception as e:
-            last_error = e
-            wait = (2 ** (attempt - 1)) + random.uniform(0, 1)  # 1-2s, 2-3s, 4-5s
-            logger.warning(
-                f"  [RETRY] {ticker} attempt {attempt}/{_retry_count} failed: {e}. "
-                f"Waiting {wait:.1f}s before retry..."
-            )
-            if attempt < _retry_count:
-                time.sleep(wait)
-
-    # All retries exhausted — return empty DataFrame
-    logger.error(f"  [FAILED] {ticker} after {_retry_count} attempts: {last_error}")
-    empty_df = pd.DataFrame()
-    _history_cache[cache_key] = empty_df
-    return empty_df
+    yf_ticker = yf.Ticker(ticker)
+    df = yf_ticker.history(start=start, end=end + timedelta(days=1), auto_adjust=False)
+    if df.empty:
+        return df
+    # Normalise index and ensure we have expected columns if present.
+    df.index = pd.to_datetime(df.index)
+    # yfinance can return timezone-aware indices; make them tz-naive so that
+    # comparisons with plain dates (as_of_date) don't raise TypeError.
+    try:
+        df.index = df.index.tz_localize(None)
+    except (TypeError, AttributeError):
+        pass
+    return df
 
 
 def _compute_horizon_return(
@@ -330,13 +266,6 @@ def _compute_horizon_returns_with_dividends(
 def _compute_stock_returns(
     symbol: str, ticker: str, as_of: date, include_dividends: bool
 ) -> StockReturn:
-    # ── Check returns cache first ────────────────────────────────────────
-    cache_key = (symbol, str(as_of), include_dividends)
-    cached = _returns_cache.get(cache_key)
-    if cached is not None:
-        logger.info(f"[CACHE HIT] returns for {symbol}")
-        return cached
-
     # Fetch enough history to cover 5Y lookback plus a small buffer for holidays.
     start_for_5y = _years_ago(as_of, 5) - timedelta(days=7)
     df = _get_history(ticker, start_for_5y, as_of)
@@ -386,7 +315,7 @@ def _compute_stock_returns(
                     except Exception:
                         week52_low, week52_high = None, None
 
-    result = StockReturn(
+    return StockReturn(
         symbol=symbol,
         name=name,
         one_year=_clean_float(one),
@@ -399,10 +328,6 @@ def _compute_stock_returns(
         week52_low=_clean_float(week52_low),
         week52_high=_clean_float(week52_high),
     )
-
-    # Cache the result
-    _returns_cache[cache_key] = result
-    return result
 
 
 def _resolve_search_query_to_symbols(q: str) -> Dict[str, str]:
@@ -476,55 +401,7 @@ def get_nifty_returns(query: ReturnsQuery) -> ReturnsResponse:
     elif query.symbols is not None:
         target_symbols = {s: NIFTY_50_SYMBOLS.get(s, f"{s}.NS") for s in query.symbols}
 
-    # ── Batch pre-warm: try yf.download() for all tickers at once ─────
-    all_tickers = list(target_symbols.values())
-    start_for_5y = _years_ago(as_of, 5) - timedelta(days=7)
-
-    # Check how many are already cached
-    uncached_tickers = [
-        t for s, t in target_symbols.items()
-        if _returns_cache.get((s, str(as_of), query.include_dividends)) is None
-    ]
-
-    if uncached_tickers:
-        logger.info(f"[BATCH] Pre-warming {len(uncached_tickers)} uncached tickers via yf.download()")
-        try:
-            session.headers["User-Agent"] = random.choice(_USER_AGENTS)
-            batch_df = yf.download(
-                tickers=uncached_tickers,
-                start=start_for_5y,
-                end=as_of + timedelta(days=1),
-                auto_adjust=False,
-                group_by="ticker",
-                threads=False,  # sequential to avoid rate-limit spikes
-                session=session,
-            )
-            # Pre-populate the history cache from batch results
-            if not batch_df.empty:
-                for ticker in uncached_tickers:
-                    try:
-                        if len(uncached_tickers) == 1:
-                            ticker_df = batch_df.copy()
-                        else:
-                            ticker_df = batch_df[ticker].dropna(how="all")
-                        if not ticker_df.empty:
-                            ticker_df.index = pd.to_datetime(ticker_df.index)
-                            try:
-                                ticker_df.index = ticker_df.index.tz_localize(None)
-                            except (TypeError, AttributeError):
-                                pass
-                            hcache_key = (ticker, str(start_for_5y), str(as_of))
-                            _history_cache[hcache_key] = ticker_df
-                    except Exception:
-                        pass  # individual ticker extraction failed, will retry individually
-                logger.info(f"[BATCH] Pre-warmed history cache with batch download")
-        except Exception as e:
-            logger.warning(f"[BATCH] Batch download failed: {e}. Will fetch individually.")
-    else:
-        logger.info(f"[CACHE] All {len(target_symbols)} tickers already cached")
-
-    # ── Compute returns per stock (will use cache from batch above) ──────
-    for i, (symbol, ticker) in enumerate(target_symbols.items()):
+    for symbol, ticker in target_symbols.items():
         try:
             sr = _compute_stock_returns(symbol, ticker, as_of, query.include_dividends)
             stocks.append(sr)
@@ -538,9 +415,6 @@ def get_nifty_returns(query: ReturnsQuery) -> ReturnsResponse:
                     five_year=None,
                 )
             )
-        # Small random delay between individual fetches to avoid rate-limiting
-        if i < len(target_symbols) - 1 and uncached_tickers:
-            time.sleep(random.uniform(0.1, 0.3))
 
     portfolio = None
     try:
@@ -559,11 +433,7 @@ def get_nifty_returns(query: ReturnsQuery) -> ReturnsResponse:
 
 @app.get("/health")
 def health() -> Dict[str, str]:
-    return {
-        "status": "ok",
-        "returns_cache_size": len(_returns_cache),
-        "history_cache_size": len(_history_cache),
-    }
+    return {"status": "ok"}
 
 
 @app.get("/debug/{ticker}", response_model=DebugResponse)
