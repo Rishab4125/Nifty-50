@@ -159,21 +159,76 @@ def _years_ago(as_of: date, years: int) -> date:
 
 def _get_history(ticker: str, start: date, end: date) -> pd.DataFrame:
     """
-    Download raw price history for a ticker, in the same spirit as test_yfinance.py.
+    Download raw price history for a single ticker (used for debug/portfolio).
     """
     yf_ticker = yf.Ticker(ticker)
     df = yf_ticker.history(start=start, end=end + timedelta(days=1), auto_adjust=False)
     if df.empty:
         return df
-    # Normalise index and ensure we have expected columns if present.
     df.index = pd.to_datetime(df.index)
-    # yfinance can return timezone-aware indices; make them tz-naive so that
-    # comparisons with plain dates (as_of_date) don't raise TypeError.
     try:
         df.index = df.index.tz_localize(None)
     except (TypeError, AttributeError):
         pass
     return df
+
+
+def _batch_download(tickers: List[str], start: date, end: date) -> Dict[str, pd.DataFrame]:
+    """
+    Download price history for multiple tickers in a single yf.download() call.
+    Returns a dict mapping each ticker string to its individual DataFrame.
+    """
+    if not tickers:
+        return {}
+
+    try:
+        raw = yf.download(
+            tickers,
+            start=start,
+            end=end + timedelta(days=1),
+            auto_adjust=False,
+            group_by="ticker",
+            threads=True,
+        )
+    except Exception as e:
+        print(f"Batch download failed: {e}")
+        return {}
+
+    result: Dict[str, pd.DataFrame] = {}
+
+    if len(tickers) == 1:
+        # yf.download with a single ticker returns a flat DataFrame (no MultiIndex columns)
+        ticker = tickers[0]
+        if raw.empty:
+            result[ticker] = pd.DataFrame()
+        else:
+            df = raw.copy()
+            df.index = pd.to_datetime(df.index)
+            try:
+                df.index = df.index.tz_localize(None)
+            except (TypeError, AttributeError):
+                pass
+            result[ticker] = df
+    else:
+        # Multiple tickers: columns are MultiIndex (ticker, field)
+        for ticker in tickers:
+            try:
+                df = raw[ticker].copy()
+                # Drop rows where all price columns are NaN (ticker had no data for that date)
+                df = df.dropna(how="all")
+                if df.empty:
+                    result[ticker] = pd.DataFrame()
+                    continue
+                df.index = pd.to_datetime(df.index)
+                try:
+                    df.index = df.index.tz_localize(None)
+                except (TypeError, AttributeError):
+                    pass
+                result[ticker] = df
+            except (KeyError, Exception):
+                result[ticker] = pd.DataFrame()
+
+    return result
 
 
 def _compute_horizon_return(
@@ -182,9 +237,6 @@ def _compute_horizon_return(
     if df.empty:
         return None
 
-    # Choose price series:
-    # - If include_dividends: use Adj Close (Yahoo total-return style).
-    # - If exclude_dividends: use Close (price-only; splits handled by Yahoo).
     price_col = "Adj Close" if include_dividends and "Adj Close" in df.columns else "Close"
     if price_col not in df.columns:
         return None
@@ -206,7 +258,6 @@ def _compute_horizon_return(
     else:
         start_ts = start_ts_candidates[0]
 
-    # Slice and compute simple total return.
     start_price = float(df.loc[start_ts, price_col])
     end_price = float(df.loc[end_ts, price_col])
     if start_price <= 0:
@@ -229,7 +280,6 @@ def _compute_horizon_returns_with_dividends(
     has_close = "Close" in cols
     has_adj = "Adj Close" in cols
 
-    # Fallback to the simpler logic if we don't have both series.
     if not (has_close and has_adj):
         base = _compute_horizon_return(df, as_of, years, include_dividends)
         return base, None
@@ -263,13 +313,12 @@ def _compute_horizon_returns_with_dividends(
     return price_return, dividend_return
 
 
-def _compute_stock_returns(
-    symbol: str, ticker: str, as_of: date, include_dividends: bool
+def _stock_return_from_df(
+    symbol: str, df: pd.DataFrame, as_of: date, include_dividends: bool
 ) -> StockReturn:
-    # Fetch enough history to cover 5Y lookback plus a small buffer for holidays.
-    start_for_5y = _years_ago(as_of, 5) - timedelta(days=7)
-    df = _get_history(ticker, start_for_5y, as_of)
-
+    """
+    Compute a StockReturn from a pre-fetched DataFrame (from batch download).
+    """
     one, one_div = _compute_horizon_returns_with_dividends(
         df, as_of, 1, include_dividends
     )
@@ -280,10 +329,7 @@ def _compute_stock_returns(
         df, as_of, 5, include_dividends
     )
 
-    # We skip name lookups to avoid extra Yahoo calls that can fail.
     name = None
-
-    # 52W range + as-of price, computed from raw history.
     price = None
     week52_low = None
     week52_high = None
@@ -297,11 +343,9 @@ def _compute_stock_returns(
             except Exception:
                 price = None
 
-            # Use trailing 52 weeks ending at end_ts.
             window_start = end_ts - pd.Timedelta(days=365)
             window_df = df.loc[window_start:end_ts]
             if not window_df.empty:
-                # Prefer intraday High/Low if present; fall back to Close.
                 if "Low" in window_df.columns and "High" in window_df.columns:
                     try:
                         week52_low = float(window_df["Low"].min())
@@ -328,6 +372,15 @@ def _compute_stock_returns(
         week52_low=_clean_float(week52_low),
         week52_high=_clean_float(week52_high),
     )
+
+
+def _compute_stock_returns(
+    symbol: str, ticker: str, as_of: date, include_dividends: bool
+) -> StockReturn:
+    """Single-ticker fetch (used for portfolio benchmark and debug endpoint)."""
+    start_for_5y = _years_ago(as_of, 5) - timedelta(days=7)
+    df = _get_history(ticker, start_for_5y, as_of)
+    return _stock_return_from_df(symbol, df, as_of, include_dividends)
 
 
 def _resolve_search_query_to_symbols(q: str) -> Dict[str, str]:
@@ -390,8 +443,6 @@ def get_nifty_returns(query: ReturnsQuery) -> ReturnsResponse:
     if as_of > date.today():
         raise HTTPException(status_code=400, detail="as_of_date cannot be in the future")
 
-    stocks: List[StockReturn] = []
-    
     target_symbols = NIFTY_50_SYMBOLS
     if query.search_query and query.search_query.strip():
         try:
@@ -401,9 +452,17 @@ def get_nifty_returns(query: ReturnsQuery) -> ReturnsResponse:
     elif query.symbols is not None:
         target_symbols = {s: NIFTY_50_SYMBOLS.get(s, f"{s}.NS") for s in query.symbols}
 
+    # ── Batch download all tickers + portfolio index in one call ──
+    start_for_5y = _years_ago(as_of, 5) - timedelta(days=7)
+    all_tickers = list(target_symbols.values()) + ["^NSEI"]
+    batch_data = _batch_download(all_tickers, start_for_5y, as_of)
+
+    # ── Build stock returns from the batch data ──
+    stocks: List[StockReturn] = []
     for symbol, ticker in target_symbols.items():
         try:
-            sr = _compute_stock_returns(symbol, ticker, as_of, query.include_dividends)
+            df = batch_data.get(ticker, pd.DataFrame())
+            sr = _stock_return_from_df(symbol, df, as_of, query.include_dividends)
             stocks.append(sr)
         except Exception:
             stocks.append(
@@ -416,10 +475,11 @@ def get_nifty_returns(query: ReturnsQuery) -> ReturnsResponse:
                 )
             )
 
+    # ── Portfolio benchmark (Nifty 50 index) from same batch ──
     portfolio = None
     try:
-        # Calculate returns for the Nifty 50 Index itself as the portfolio benchmark
-        portfolio = _compute_stock_returns("NIFTY 50", "^NSEI", as_of, query.include_dividends)
+        nifty_df = batch_data.get("^NSEI", pd.DataFrame())
+        portfolio = _stock_return_from_df("NIFTY 50", nifty_df, as_of, query.include_dividends)
     except Exception:
         pass
 
