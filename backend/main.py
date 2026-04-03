@@ -6,7 +6,6 @@ import yfinance as yf
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import requests
 import os
 import json
 import math
@@ -25,17 +24,7 @@ def _clean_float(val) -> Optional[float]:
         return f
     except Exception:
         return None
-
 load_dotenv()
-
-# Session with browser-like headers so Yahoo Finance doesn't block
-# requests from cloud server IPs (e.g. Render, AWS, GCP).
-_session = requests.Session()
-_session.headers.update({
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9",
-})
 
 
 class StockReturn(BaseModel):
@@ -157,10 +146,20 @@ def _get_history(ticker: str, start: date, end: date) -> pd.DataFrame:
     """
     Download raw price history for a single ticker (used for debug/portfolio).
     """
-    yf_ticker = yf.Ticker(ticker, session=_session)
-    df = yf_ticker.history(start=start, end=end + timedelta(days=1), auto_adjust=False)
+    df = yf.download(
+        ticker,
+        start=start,
+        end=end + timedelta(days=1),
+        auto_adjust=False,
+        progress=False
+    )
     if df.empty:
         return df
+
+    # Standardize columns to fix new yfinance >= 0.2.40 MultiIndex format issues
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+
     df.index = pd.to_datetime(df.index)
     try:
         df.index = df.index.tz_localize(None)
@@ -183,9 +182,8 @@ def _batch_download(tickers: List[str], start: date, end: date) -> Dict[str, pd.
             start=start,
             end=end + timedelta(days=1),
             auto_adjust=False,
-            group_by="ticker",
+            progress=False,
             threads=True,
-            session=_session,
         )
     except Exception as e:
         print(f"Batch download failed: {e}")
@@ -194,12 +192,13 @@ def _batch_download(tickers: List[str], start: date, end: date) -> Dict[str, pd.
     result: Dict[str, pd.DataFrame] = {}
 
     if len(tickers) == 1:
-        # yf.download with a single ticker returns a flat DataFrame (no MultiIndex columns)
         ticker = tickers[0]
         if raw.empty:
             result[ticker] = pd.DataFrame()
         else:
             df = raw.copy()
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(0)
             df.index = pd.to_datetime(df.index)
             try:
                 df.index = df.index.tz_localize(None)
@@ -207,15 +206,28 @@ def _batch_download(tickers: List[str], start: date, end: date) -> Dict[str, pd.
                 pass
             result[ticker] = df
     else:
-        # Multiple tickers: columns are MultiIndex (ticker, field)
+        # For multiple tickers, columns are usually MultiIndex (Price, Ticker)
         for ticker in tickers:
             try:
-                df = raw[ticker].copy()
-                # Drop rows where all price columns are NaN (ticker had no data for that date)
+                # Reliably extract the ticker's columns regardless of level order
+                if isinstance(raw.columns, pd.MultiIndex):
+                    if ticker in raw.columns.get_level_values(1):
+                        df = raw.xs(ticker, axis=1, level=1).copy()
+                    elif ticker in raw.columns.get_level_values(0):
+                        df = raw.xs(ticker, axis=1, level=0).copy()
+                    else:
+                        df = pd.DataFrame()
+                else:
+                    df = pd.DataFrame()
+
                 df = df.dropna(how="all")
                 if df.empty:
                     result[ticker] = pd.DataFrame()
                     continue
+
+                if isinstance(df.columns, pd.MultiIndex):
+                    df.columns = df.columns.get_level_values(0)
+
                 df.index = pd.to_datetime(df.index)
                 try:
                     df.index = df.index.tz_localize(None)
