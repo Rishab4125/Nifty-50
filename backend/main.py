@@ -28,12 +28,14 @@ def _clean_float(val) -> Optional[float]:
 
 load_dotenv()
 
-session = requests.Session()
-session.headers.update({
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+# Session with browser-like headers so Yahoo Finance doesn't block
+# requests from cloud server IPs (e.g. Render, AWS, GCP).
+_session = requests.Session()
+_session.headers.update({
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
 })
-yf.utils.requests = lambda: session
 
 
 class StockReturn(BaseModel):
@@ -153,21 +155,76 @@ def _years_ago(as_of: date, years: int) -> date:
 
 def _get_history(ticker: str, start: date, end: date) -> pd.DataFrame:
     """
-    Download raw price history for a ticker, in the same spirit as test_yfinance.py.
+    Download raw price history for a single ticker (used for debug/portfolio).
     """
     yf_ticker = yf.Ticker(ticker)
     df = yf_ticker.history(start=start, end=end + timedelta(days=1), auto_adjust=False)
     if df.empty:
         return df
-    # Normalise index and ensure we have expected columns if present.
     df.index = pd.to_datetime(df.index)
-    # yfinance can return timezone-aware indices; make them tz-naive so that
-    # comparisons with plain dates (as_of_date) don't raise TypeError.
     try:
         df.index = df.index.tz_localize(None)
     except (TypeError, AttributeError):
         pass
     return df
+
+
+def _batch_download(tickers: List[str], start: date, end: date) -> Dict[str, pd.DataFrame]:
+    """
+    Download price history for multiple tickers in a single yf.download() call.
+    Returns a dict mapping each ticker string to its individual DataFrame.
+    """
+    if not tickers:
+        return {}
+
+    try:
+        raw = yf.download(
+            tickers,
+            start=start,
+            end=end + timedelta(days=1),
+            auto_adjust=False,
+            group_by="ticker",
+            threads=True,
+        )
+    except Exception as e:
+        print(f"Batch download failed: {e}")
+        return {}
+
+    result: Dict[str, pd.DataFrame] = {}
+
+    if len(tickers) == 1:
+        # yf.download with a single ticker returns a flat DataFrame (no MultiIndex columns)
+        ticker = tickers[0]
+        if raw.empty:
+            result[ticker] = pd.DataFrame()
+        else:
+            df = raw.copy()
+            df.index = pd.to_datetime(df.index)
+            try:
+                df.index = df.index.tz_localize(None)
+            except (TypeError, AttributeError):
+                pass
+            result[ticker] = df
+    else:
+        # Multiple tickers: columns are MultiIndex (ticker, field)
+        for ticker in tickers:
+            try:
+                df = raw[ticker].copy()
+                # Drop rows where all price columns are NaN (ticker had no data for that date)
+                df = df.dropna(how="all")
+                if df.empty:
+                    result[ticker] = pd.DataFrame()
+                    continue
+                df.index = pd.to_datetime(df.index)
+                try:
+                    df.index = df.index.tz_localize(None)
+                except (TypeError, AttributeError):
+                    pass
+                result[ticker] = df
+            except (KeyError, Exception):
+                result[ticker] = pd.DataFrame()
+
+    return result
 
 
 def _compute_horizon_return(
@@ -252,13 +309,12 @@ def _compute_horizon_returns_with_dividends(
     return price_return, dividend_return
 
 
-def _compute_stock_returns(
-    symbol: str, ticker: str, as_of: date, include_dividends: bool
+def _stock_return_from_df(
+    symbol: str, df: pd.DataFrame, as_of: date, include_dividends: bool
 ) -> StockReturn:
-    # Fetch enough history to cover 5Y lookback plus a small buffer for holidays.
-    start_for_5y = _years_ago(as_of, 5) - timedelta(days=7)
-    df = _get_history(ticker, start_for_5y, as_of)
-
+    """
+    Compute a StockReturn from a pre-fetched DataFrame (from batch download).
+    """
     one, one_div = _compute_horizon_returns_with_dividends(
         df, as_of, 1, include_dividends
     )
@@ -312,6 +368,15 @@ def _compute_stock_returns(
         week52_low=_clean_float(week52_low),
         week52_high=_clean_float(week52_high),
     )
+
+
+def _compute_stock_returns(
+    symbol: str, ticker: str, as_of: date, include_dividends: bool
+) -> StockReturn:
+    """Single-ticker fetch (used for portfolio benchmark and debug endpoint)."""
+    start_for_5y = _years_ago(as_of, 5) - timedelta(days=7)
+    df = _get_history(ticker, start_for_5y, as_of)
+    return _stock_return_from_df(symbol, df, as_of, include_dividends)
 
 
 def _resolve_search_query_to_symbols(q: str) -> Dict[str, str]:
@@ -368,8 +433,6 @@ def get_tickers(q: Optional[str] = None) -> List[Dict[str, str]]:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
-
 @app.post("/api/returns", response_model=ReturnsResponse)
 def get_nifty_returns(query: ReturnsQuery) -> ReturnsResponse:
     as_of = query.as_of_date
@@ -385,33 +448,34 @@ def get_nifty_returns(query: ReturnsQuery) -> ReturnsResponse:
     elif query.symbols is not None:
         target_symbols = {s: NIFTY_50_SYMBOLS.get(s, f"{s}.NS") for s in query.symbols}
 
+    # ── Batch download all tickers + portfolio index in one call ──
+    start_for_5y = _years_ago(as_of, 5) - timedelta(days=7)
+    all_tickers = list(target_symbols.values()) + ["^NSEI"]
+    batch_data = _batch_download(all_tickers, start_for_5y, as_of)
+
+    # ── Build stock returns from the batch data ──
     stocks: List[StockReturn] = []
-    
-    # Batch processing using ThreadPoolExecutor for speed, keeping the stable _get_history logic
-    def fetch_return(symbol: str, ticker: str) -> StockReturn:
+    for symbol, ticker in target_symbols.items():
         try:
-            return _compute_stock_returns(symbol, ticker, as_of, query.include_dividends)
+            df = batch_data.get(ticker, pd.DataFrame())
+            sr = _stock_return_from_df(symbol, df, as_of, query.include_dividends)
+            stocks.append(sr)
         except Exception:
-            return StockReturn(
-                symbol=symbol,
-                name=None,
-                one_year=None,
-                three_year=None,
-                five_year=None,
+            stocks.append(
+                StockReturn(
+                    symbol=symbol,
+                    name=None,
+                    one_year=None,
+                    three_year=None,
+                    five_year=None,
+                )
             )
 
-    with ThreadPoolExecutor(max_workers=10) as executor:
-        futures = {
-            executor.submit(fetch_return, sym, tck): sym 
-            for sym, tck in target_symbols.items()
-        }
-        for future in as_completed(futures):
-            stocks.append(future.result())
-
-    # Calculate returns for the Nifty 50 Index itself as the portfolio benchmark
+    # ── Portfolio benchmark (Nifty 50 index) from same batch ──
     portfolio = None
     try:
-        portfolio = fetch_return("NIFTY 50", "^NSEI")
+        nifty_df = batch_data.get("^NSEI", pd.DataFrame())
+        portfolio = _stock_return_from_df("NIFTY 50", nifty_df, as_of, query.include_dividends)
     except Exception:
         pass
 
