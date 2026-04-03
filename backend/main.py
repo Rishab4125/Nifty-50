@@ -6,6 +6,7 @@ import yfinance as yf
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+import requests
 import os
 import json
 import math
@@ -26,6 +27,15 @@ def _clean_float(val) -> Optional[float]:
         return None
 
 load_dotenv()
+
+# Session with browser-like headers so Yahoo Finance doesn't block
+# requests from cloud server IPs (e.g. Render, AWS, GCP).
+_session = requests.Session()
+_session.headers.update({
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+})
 
 
 class StockReturn(BaseModel):
@@ -147,7 +157,7 @@ def _get_history(ticker: str, start: date, end: date) -> pd.DataFrame:
     """
     Download raw price history for a single ticker (used for debug/portfolio).
     """
-    yf_ticker = yf.Ticker(ticker)
+    yf_ticker = yf.Ticker(ticker, session=_session)
     df = yf_ticker.history(start=start, end=end + timedelta(days=1), auto_adjust=False)
     if df.empty:
         return df
@@ -175,6 +185,7 @@ def _batch_download(tickers: List[str], start: date, end: date) -> Dict[str, pd.
             auto_adjust=False,
             group_by="ticker",
             threads=True,
+            session=_session,
         )
     except Exception as e:
         print(f"Batch download failed: {e}")
